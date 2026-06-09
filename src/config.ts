@@ -9,6 +9,9 @@ const envSchema = z.object({
   GITHUB_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  RESOLVER_WORKDIR: z.string().default(".resolver-work"),
+  RESOLVER_ENABLE_CODEX: z.coerce.boolean().default(false),
+  RESOLVER_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

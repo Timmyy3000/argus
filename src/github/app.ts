@@ -21,3 +21,21 @@ export async function createInstallationOctokit(installationId: number) {
   return app.getInstallationOctokit(installationId);
 }
 
+export async function createInstallationToken(installationId: number): Promise<string> {
+  const app = createGitHubApp();
+  if (!app) {
+    throw new Error("GitHub App credentials are not configured");
+  }
+
+  const auth = (await app.octokit.auth({
+    type: "installation",
+    installationId,
+  })) as { token?: string };
+
+  if (!auth.token) {
+    throw new Error(`Failed to create installation token for ${installationId}`);
+  }
+
+  return auth.token;
+}
+

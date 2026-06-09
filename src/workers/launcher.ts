@@ -8,11 +8,12 @@ import {
   type TerminalJobStatus,
 } from "../domain/attempts";
 import { createBoss, ISSUE_FIX_QUEUE, type IssueFixJobPayload } from "../queue/boss";
-import { NoopWorkerRunner } from "./noop-runner";
+import { IssueFixRunner } from "./issue-fix-runner";
 import type { WorkerRunner } from "./types";
 
-export async function startWorkerLauncher(runner: WorkerRunner = new NoopWorkerRunner()) {
+export async function startWorkerLauncher(runner?: WorkerRunner) {
   const { db, client } = createDb();
+  const activeRunner = runner ?? new IssueFixRunner(db);
   const boss = createBoss();
   await boss.start();
   await boss.createQueue(ISSUE_FIX_QUEUE);
@@ -37,7 +38,7 @@ export async function startWorkerLauncher(runner: WorkerRunner = new NoopWorkerR
       content: `Started attempt ${attempt.attemptNumber} with worker ${workerId}`,
     });
 
-    const result = await runner.run({
+    const result = await activeRunner.run({
       jobId: job.data.jobId,
       repositoryId: job.data.repositoryId,
       issueId: job.data.issueId,
@@ -50,7 +51,7 @@ export async function startWorkerLauncher(runner: WorkerRunner = new NoopWorkerR
         ? "completed"
         : result.status === "needs_human"
           ? "needs_human"
-          : "implementation_failed";
+          : result.status;
 
     await appendRedactedLogChunk(db, {
       jobId: job.data.jobId,

@@ -1,3 +1,4 @@
 .agents/
 internal/
 node_modules/
+.resolver-work/
