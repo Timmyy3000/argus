@@ -1,0 +1,15 @@
+[Unit]
+Description=Resolver Worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/resolver
+EnvironmentFile=/opt/resolver/.env
+ExecStart=/root/.bun/bin/bun run worker
+Restart=always
+RestartSec=5
+User=resolver
+
+[Install]
+WantedBy=multi-user.target
