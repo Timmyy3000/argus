@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-resolver}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-resolver}
+      POSTGRES_DB: ${POSTGRES_DB:-resolver}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-resolver} -d $${POSTGRES_DB:-resolver}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://resolver:resolver@postgres:5432/resolver}
+    command: ["bun", "run", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:-postgres://resolver:resolver@postgres:5432/resolver}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RESOLVER_ENABLE_CODEX: ${RESOLVER_ENABLE_CODEX:-false}
+      RESOLVER_ENABLE_GIT_PUSH: ${RESOLVER_ENABLE_GIT_PUSH:-false}
+      RESOLVER_WORKDIR: /app/.resolver-work
+      RESOLVER_SANDBOX_MODE: ${RESOLVER_SANDBOX_MODE:-host}
+      RESOLVER_SANDBOX_IMAGE: ${RESOLVER_SANDBOX_IMAGE:-oven/bun:1}
+    ports:
+      - "${PORT:-3000}:3000"
+    command: ["bun", "run", "start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:3000/health'); if(!r.ok) process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgres://resolver:resolver@postgres:5432/resolver}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RESOLVER_ENABLE_CODEX: ${RESOLVER_ENABLE_CODEX:-false}
+      RESOLVER_ENABLE_GIT_PUSH: ${RESOLVER_ENABLE_GIT_PUSH:-false}
+      RESOLVER_WORKDIR: /app/.resolver-work
+      RESOLVER_SANDBOX_MODE: ${RESOLVER_SANDBOX_MODE:-host}
+      RESOLVER_SANDBOX_IMAGE: ${RESOLVER_SANDBOX_IMAGE:-oven/bun:1}
+    command: ["bun", "run", "worker"]
+    volumes:
+      - resolver_work:/app/.resolver-work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  resolver_work:

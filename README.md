@@ -97,6 +97,34 @@ sudo systemctl enable --now resolver-api
 sudo systemctl enable --now resolver-worker
 ```
 
+## Container Deployment
+
+The app can also run as ordinary containers using `compose.deploy.yml`:
+
+```bash
+cp .env.example .env
+docker compose -f compose.deploy.yml up --build
+```
+
+This starts:
+
+- `api`: Fastify webhook/status server on port `3000`
+- `worker`: background pg-boss worker
+- `migrate`: one-shot Drizzle migration task
+- `postgres`: Postgres database, unless `DATABASE_URL` points to another database
+
+For the first remote smoke test, keep these gates disabled:
+
+```bash
+RESOLVER_ENABLE_CODEX=false
+RESOLVER_ENABLE_GIT_PUSH=false
+RESOLVER_SANDBOX_MODE=host
+```
+
+That proves webhook intake, queueing, worker execution, discovery, validation recording, and outcome comments without modifying repositories.
+
+Containerizing Resolver does not require the worker to control Docker. `RESOLVER_SANDBOX_MODE=host` means validation and Codex commands run inside the worker container itself. The Docker command sandbox is opt-in through `RESOLVER_SANDBOX_MODE=docker`; only enable it in an environment where you have deliberately provided Docker access to the worker container.
+
 ## Current Status
 
 Phase 1 MVP foundation is implemented:

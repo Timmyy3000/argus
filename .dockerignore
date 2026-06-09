@@ -1,0 +1,8 @@
+.agents
+.git
+.resolver-work
+internal
+node_modules
+coverage
+*.log
+.env
