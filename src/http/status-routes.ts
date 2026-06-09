@@ -1,7 +1,17 @@
 import type { FastifyInstance } from "fastify";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { jobs } from "../db/schema";
+import {
+  discoveryResults,
+  jobAttempts,
+  jobEvents,
+  jobLogChunks,
+  jobs,
+  pullRequests,
+  reviewResults,
+  validationResults,
+} from "../db/schema";
+import { presentJobDetail, presentJobListItem } from "./job-presenter";
 
 export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db }) {
   app.get("/health", async () => ({ ok: true }));
@@ -17,17 +27,54 @@ export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db 
     });
 
     return {
-      jobs: rows.map((job) => ({
-        id: job.id,
-        status: job.status,
-        repository: job.repository.fullName,
-        issueNumber: job.issue.number,
-        triggerLabel: job.triggerLabel,
-        requestedBy: job.requestedBy,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-      })),
+      jobs: rows.map(presentJobListItem),
     };
   });
-}
 
+  app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
+    const job = await deps.db.query.jobs.findFirst({
+      where: eq(jobs.id, request.params.id),
+      with: {
+        repository: true,
+        issue: true,
+      },
+    });
+
+    if (!job) return reply.code(404).send({ error: "Job not found" });
+
+    const [attempts, events, logs, discovery, validations, reviews, pullRequest] = await Promise.all([
+      deps.db.query.jobAttempts.findMany({
+        where: eq(jobAttempts.jobId, job.id),
+        orderBy: [desc(jobAttempts.attemptNumber)],
+      }),
+      deps.db.select().from(jobEvents).where(eq(jobEvents.jobId, job.id)).orderBy(desc(jobEvents.createdAt)).limit(50),
+      deps.db
+        .select()
+        .from(jobLogChunks)
+        .where(eq(jobLogChunks.jobId, job.id))
+        .orderBy(desc(jobLogChunks.sequence))
+        .limit(100),
+      deps.db
+        .select()
+        .from(discoveryResults)
+        .where(eq(discoveryResults.jobId, job.id))
+        .orderBy(desc(discoveryResults.createdAt))
+        .limit(5),
+      deps.db
+        .select()
+        .from(validationResults)
+        .where(eq(validationResults.jobId, job.id))
+        .orderBy(desc(validationResults.createdAt))
+        .limit(10),
+      deps.db
+        .select()
+        .from(reviewResults)
+        .where(eq(reviewResults.jobId, job.id))
+        .orderBy(desc(reviewResults.createdAt))
+        .limit(5),
+      deps.db.query.pullRequests.findFirst({ where: eq(pullRequests.jobId, job.id) }),
+    ]);
+
+    return presentJobDetail({ job, attempts, events, logs, discovery, validations, reviews, pullRequest: pullRequest ?? null });
+  });
+}
