@@ -9,11 +9,11 @@ const envSchema = z.object({
   GITHUB_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  RESOLVER_WORKDIR: z.string().default(".resolver-work"),
-  RESOLVER_ENABLE_CODEX: z.coerce.boolean().default(false),
-  RESOLVER_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
-  RESOLVER_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
-  RESOLVER_SANDBOX_IMAGE: z.string().default("oven/bun:1"),
+  ARGUS_WORKDIR: z.string().default(".argus-work"),
+  ARGUS_ENABLE_CODEX: z.coerce.boolean().default(false),
+  ARGUS_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
+  ARGUS_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
+  ARGUS_SANDBOX_IMAGE: z.string().default("oven/bun:1"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

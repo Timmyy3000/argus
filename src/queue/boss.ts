@@ -12,7 +12,7 @@ export type IssueFixJobPayload = {
 export function createBoss(databaseUrl = loadConfig().DATABASE_URL): PgBoss {
   return new PgBoss({
     connectionString: databaseUrl,
-    application_name: "resolver",
+    application_name: "argus",
   });
 }
 

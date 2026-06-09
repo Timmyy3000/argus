@@ -1,15 +1,15 @@
 [Unit]
-Description=Resolver Worker
+Description=Argus Worker
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/resolver
-EnvironmentFile=/opt/resolver/.env
+WorkingDirectory=/opt/argus
+EnvironmentFile=/opt/argus/.env
 ExecStart=/root/.bun/bin/bun run worker
 Restart=always
 RestartSec=5
-User=resolver
+User=argus
 
 [Install]
 WantedBy=multi-user.target

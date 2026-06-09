@@ -18,7 +18,7 @@ export async function createIssueComment(input: {
 
 export function acceptedComment(jobId: string): string {
   return [
-    "Resolver accepted this issue for an automated bug-fix attempt.",
+    "Argus accepted this issue for an automated bug-fix attempt.",
     "",
     `Job: \`${jobId}\``,
     "",
@@ -28,7 +28,7 @@ export function acceptedComment(jobId: string): string {
 
 export function rejectionComment(reason: string): string {
   return [
-    "Resolver did not start an automated bug-fix attempt.",
+    "Argus did not start an automated bug-fix attempt.",
     "",
     `Reason: ${reason}`,
   ].join("\n");
@@ -37,10 +37,10 @@ export function rejectionComment(reason: string): string {
 export function outcomeComment(input: { status: string; reason: string }): string {
   const heading =
     input.status === "completed"
-      ? "Resolver completed this automated bug-fix attempt."
+      ? "Argus completed this automated bug-fix attempt."
       : input.status === "needs_human"
-        ? "Resolver needs human attention on this bug-fix attempt."
-        : "Resolver could not complete this automated bug-fix attempt.";
+        ? "Argus needs human attention on this bug-fix attempt."
+        : "Argus could not complete this automated bug-fix attempt.";
 
   return [heading, "", `Status: \`${input.status}\``, "", `Reason: ${input.reason}`].join("\n");
 }

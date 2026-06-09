@@ -1,8 +1,7 @@
 export function issueBranchName(issueNumber: number): string {
-  return `resolver/issue-${issueNumber}`;
+  return `argus/issue-${issueNumber}`;
 }
 
 export function prTitle(issueNumber: number, issueTitle: string): string {
   return `Fix #${issueNumber}: ${issueTitle}`;
 }
-

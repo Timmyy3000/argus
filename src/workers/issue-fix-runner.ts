@@ -38,7 +38,7 @@ export class IssueFixRunner implements WorkerRunner {
     if (!policy) return { status: "implementation_failed", reason: "Repository policy was not found" };
 
     const token = await createInstallationToken(loaded.repository.installation.installationId);
-    const workspace = join(process.cwd(), config.RESOLVER_WORKDIR, job.jobId);
+    const workspace = join(process.cwd(), config.ARGUS_WORKDIR, job.jobId);
     const repoDir = join(workspace, loaded.repository.name);
     const branch = issueBranchName(loaded.issue.number);
 
@@ -60,8 +60,8 @@ export class IssueFixRunner implements WorkerRunner {
     }
 
     const executor = createCommandExecutor({
-      mode: config.RESOLVER_SANDBOX_MODE,
-      image: config.RESOLVER_SANDBOX_IMAGE,
+      mode: config.ARGUS_SANDBOX_MODE,
+      image: config.ARGUS_SANDBOX_IMAGE,
       repoDir,
     });
     const discovery = await discoverRepository(repoDir);
@@ -75,10 +75,10 @@ export class IssueFixRunner implements WorkerRunner {
       details: { results: validation.results },
     });
 
-    if (!config.RESOLVER_ENABLE_CODEX) {
+    if (!config.ARGUS_ENABLE_CODEX) {
       return {
         status: "needs_human",
-        reason: "Repository was cloned and discovered, but RESOLVER_ENABLE_CODEX=false so implementation was not attempted.",
+        reason: "Repository was cloned and discovered, but ARGUS_ENABLE_CODEX=false so implementation was not attempted.",
       };
     }
 
@@ -138,10 +138,10 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "needs_human", reason: publish.reason };
     }
 
-    if (!config.RESOLVER_ENABLE_GIT_PUSH) {
+    if (!config.ARGUS_ENABLE_GIT_PUSH) {
       return {
         status: "needs_human",
-        reason: `Publish decision was ${publish.decision}, but RESOLVER_ENABLE_GIT_PUSH=false so no branch or PR was pushed.`,
+        reason: `Publish decision was ${publish.decision}, but ARGUS_ENABLE_GIT_PUSH=false so no branch or PR was pushed.`,
       };
     }
 
@@ -188,7 +188,7 @@ function buildPrBody(issueNumber: number, validationSummary: string, publishReas
   return [
     `Fixes #${issueNumber}.`,
     "",
-    "## Resolver Summary",
+    "## Argus Summary",
     `- Validation: ${validationSummary}`,
     `- Publish decision: ${publishReason}`,
   ].join("\n");

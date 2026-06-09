@@ -1,6 +1,6 @@
 import { createBoss } from "../src/queue/boss";
 
-const queueName = `resolver.pg-boss.smoke.${Date.now()}`;
+const queueName = `argus.pg-boss.smoke.${Date.now()}`;
 const boss = createBoss();
 
 await boss.start();

@@ -1,6 +1,8 @@
-# Resolver
+# Argus
 
-Self-hosted GitHub issue-to-PR bug fixing daemon powered by Codex workers.
+Open-source GitHub issue-to-PR bug fixing daemon powered by Codex workers.
+
+Repository: https://github.com/Timmyy3000/argus
 
 ## Stack
 
@@ -40,17 +42,17 @@ GITHUB_APP_ID=
 GITHUB_PRIVATE_KEY=
 GITHUB_WEBHOOK_SECRET=
 OPENAI_API_KEY=
-RESOLVER_ENABLE_CODEX=false
-RESOLVER_ENABLE_GIT_PUSH=false
-RESOLVER_SANDBOX_MODE=host
-RESOLVER_SANDBOX_IMAGE=oven/bun:1
+ARGUS_ENABLE_CODEX=false
+ARGUS_ENABLE_GIT_PUSH=false
+ARGUS_SANDBOX_MODE=host
+ARGUS_SANDBOX_IMAGE=oven/bun:1
 ```
 
 Important gates:
 
-- `RESOLVER_ENABLE_CODEX=false` clones and discovers a repo, then stops before implementation.
-- `RESOLVER_ENABLE_GIT_PUSH=false` allows implementation and validation but stops before pushing a branch or opening a PR.
-- `RESOLVER_SANDBOX_MODE=docker` wraps validation and Codex commands in `docker run --network none`.
+- `ARGUS_ENABLE_CODEX=false` clones and discovers a repo, then stops before implementation.
+- `ARGUS_ENABLE_GIT_PUSH=false` allows implementation and validation but stops before pushing a branch or opening a PR.
+- `ARGUS_SANDBOX_MODE=docker` wraps validation and Codex commands in `docker run --network none`.
 
 ## GitHub App
 
@@ -61,16 +63,16 @@ Create a GitHub App with:
 - Repository permissions: Issues read/write, Contents read/write, Pull requests read/write, Metadata read
 - Subscribe to issue events
 
-Install it on the repos Resolver should watch. A labeled issue starts a job when the label matches the repository policy, currently `agent:fix` by default.
+Install it on the repos Argus should watch. A labeled issue starts a job when the label matches the repository policy, currently `agent:fix` by default.
 
 ## Runtime Flow
 
 1. GitHub sends an `issues.labeled` webhook.
-2. Resolver verifies the signature, upserts installation/repository/issue records, and checks the repo policy.
+2. Argus verifies the signature, upserts installation/repository/issue records, and checks the repo policy.
 3. A pg-boss job is queued idempotently for the issue and label.
 4. The worker leases an attempt, clones the repo, creates a branch, discovers repo commands, and runs validation.
 5. If Codex is enabled, the worker runs `codex exec`, commits any diff, validates again, applies the MVP review gate, and decides whether a PR can be published.
-6. If git push is enabled, Resolver pushes the branch and opens a PR. Otherwise it marks the job as needing human attention with a clear reason.
+6. If git push is enabled, Argus pushes the branch and opens a PR. Otherwise it marks the job as needing human attention with a clear reason.
 
 ## Status API
 
@@ -93,8 +95,8 @@ bun run db:migrate
 Then install the service templates in `ops/systemd/`, update `WorkingDirectory`, `EnvironmentFile`, `User`, and the Bun path if needed, and start both services:
 
 ```bash
-sudo systemctl enable --now resolver-api
-sudo systemctl enable --now resolver-worker
+sudo systemctl enable --now argus-api
+sudo systemctl enable --now argus-worker
 ```
 
 ## Container Deployment
@@ -116,14 +118,14 @@ This starts:
 For the first remote smoke test, keep these gates disabled:
 
 ```bash
-RESOLVER_ENABLE_CODEX=false
-RESOLVER_ENABLE_GIT_PUSH=false
-RESOLVER_SANDBOX_MODE=host
+ARGUS_ENABLE_CODEX=false
+ARGUS_ENABLE_GIT_PUSH=false
+ARGUS_SANDBOX_MODE=host
 ```
 
 That proves webhook intake, queueing, worker execution, discovery, validation recording, and outcome comments without modifying repositories.
 
-Containerizing Resolver does not require the worker to control Docker. `RESOLVER_SANDBOX_MODE=host` means validation and Codex commands run inside the worker container itself. The Docker command sandbox is opt-in through `RESOLVER_SANDBOX_MODE=docker`; only enable it in an environment where you have deliberately provided Docker access to the worker container.
+Containerizing Argus does not require the worker to control Docker. `ARGUS_SANDBOX_MODE=host` means validation and Codex commands run inside the worker container itself. The Docker command sandbox is opt-in through `ARGUS_SANDBOX_MODE=docker`; only enable it in an environment where you have deliberately provided Docker access to the worker container.
 
 ## Current Status
 

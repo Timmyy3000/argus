@@ -1,3 +1,5 @@
+name: argus
+
 services:
   postgres:
     image: postgres:17
@@ -36,11 +38,11 @@ services:
       GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      RESOLVER_ENABLE_CODEX: ${RESOLVER_ENABLE_CODEX:-false}
-      RESOLVER_ENABLE_GIT_PUSH: ${RESOLVER_ENABLE_GIT_PUSH:-false}
-      RESOLVER_WORKDIR: /app/.resolver-work
-      RESOLVER_SANDBOX_MODE: ${RESOLVER_SANDBOX_MODE:-host}
-      RESOLVER_SANDBOX_IMAGE: ${RESOLVER_SANDBOX_IMAGE:-oven/bun:1}
+      ARGUS_ENABLE_CODEX: ${ARGUS_ENABLE_CODEX:-false}
+      ARGUS_ENABLE_GIT_PUSH: ${ARGUS_ENABLE_GIT_PUSH:-false}
+      ARGUS_WORKDIR: /app/.argus-work
+      ARGUS_SANDBOX_MODE: ${ARGUS_SANDBOX_MODE:-host}
+      ARGUS_SANDBOX_IMAGE: ${ARGUS_SANDBOX_IMAGE:-oven/bun:1}
     ports:
       - "${PORT:-3000}:3000"
     command: ["bun", "run", "start"]
@@ -66,14 +68,14 @@ services:
       GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      RESOLVER_ENABLE_CODEX: ${RESOLVER_ENABLE_CODEX:-false}
-      RESOLVER_ENABLE_GIT_PUSH: ${RESOLVER_ENABLE_GIT_PUSH:-false}
-      RESOLVER_WORKDIR: /app/.resolver-work
-      RESOLVER_SANDBOX_MODE: ${RESOLVER_SANDBOX_MODE:-host}
-      RESOLVER_SANDBOX_IMAGE: ${RESOLVER_SANDBOX_IMAGE:-oven/bun:1}
+      ARGUS_ENABLE_CODEX: ${ARGUS_ENABLE_CODEX:-false}
+      ARGUS_ENABLE_GIT_PUSH: ${ARGUS_ENABLE_GIT_PUSH:-false}
+      ARGUS_WORKDIR: /app/.argus-work
+      ARGUS_SANDBOX_MODE: ${ARGUS_SANDBOX_MODE:-host}
+      ARGUS_SANDBOX_IMAGE: ${ARGUS_SANDBOX_IMAGE:-oven/bun:1}
     command: ["bun", "run", "worker"]
     volumes:
-      - resolver_work:/app/.resolver-work
+      - argus_work:/app/.argus-work
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,4 +85,4 @@ services:
 
 volumes:
   postgres_data:
-  resolver_work:
+  argus_work:

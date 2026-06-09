@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 async function tempRepo() {
-  const root = await mkdtemp(join(tmpdir(), "resolver-discover-"));
+  const root = await mkdtemp(join(tmpdir(), "argus-discover-"));
   roots.push(root);
   return root;
 }
@@ -62,4 +62,3 @@ describe("discoverRepository", () => {
     expect(result.commands.test).toBe("uv run pytest");
   });
 });
-

@@ -9,15 +9,15 @@ try {
   const suffix = Date.now();
   const installation = await upsertInstallation(db, {
     installationId: Math.floor(suffix % 1_000_000_000),
-    accountLogin: "resolver-smoke",
+    accountLogin: "argus-smoke",
     accountType: "Organization",
   });
 
   const repository = await upsertRepository(db, installation.id, {
     githubId: Math.floor((suffix + 1) % 1_000_000_000),
-    owner: "resolver-smoke",
+    owner: "argus-smoke",
     name: `repo-${suffix}`,
-    fullName: `resolver-smoke/repo-${suffix}`,
+    fullName: `argus-smoke/repo-${suffix}`,
     defaultBranch: "main",
     private: true,
   });
@@ -80,4 +80,3 @@ try {
 } finally {
   await client.end();
 }
-

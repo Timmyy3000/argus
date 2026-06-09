@@ -4,7 +4,7 @@ import { buildDockerRunArgs } from "../src/sandbox/executor";
 describe("buildDockerRunArgs", () => {
   test("wraps commands in a no-network workspace container", () => {
     const args = buildDockerRunArgs({
-      image: "resolver-sandbox:local",
+      image: "argus-sandbox:local",
       repoDir: "/tmp/repo",
       command: "bun",
       args: ["test"],
@@ -22,7 +22,7 @@ describe("buildDockerRunArgs", () => {
       "/workspace",
       "-e",
       "OPENAI_API_KEY=test-key",
-      "resolver-sandbox:local",
+      "argus-sandbox:local",
       "bun",
       "test",
     ]);
