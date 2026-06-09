@@ -12,6 +12,8 @@ const envSchema = z.object({
   RESOLVER_WORKDIR: z.string().default(".resolver-work"),
   RESOLVER_ENABLE_CODEX: z.coerce.boolean().default(false),
   RESOLVER_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
+  RESOLVER_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
+  RESOLVER_SANDBOX_IMAGE: z.string().default("oven/bun:1"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

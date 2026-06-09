@@ -1,4 +1,5 @@
 import type { DiscoveryCommands } from "../discovery/types";
+import type { CommandExecutor } from "../sandbox/executor";
 import { splitCommand, runCommand } from "../system/command";
 
 export type ValidationCommandResult = {
@@ -19,15 +20,17 @@ export async function runValidationCommands(
   cwd: string,
   commands: DiscoveryCommands,
   timeoutMs = 10 * 60_000,
+  executor?: CommandExecutor,
 ): Promise<ValidationRunResult> {
   const ordered = ["install", "typecheck", "lint", "test"] as const;
   const results: ValidationCommandResult[] = [];
+  const commandRunner = executor ?? { run: runCommand };
 
   for (const name of ordered) {
     const command = commands[name];
     if (!command) continue;
     const { executable, args } = splitCommand(command);
-    const result = await runCommand(executable, args, { cwd, timeoutMs });
+    const result = await commandRunner.run(executable, args, { cwd, timeoutMs });
     results.push({ name, command, ...result });
     if (result.exitCode !== 0) {
       return {
@@ -44,4 +47,3 @@ export async function runValidationCommands(
     results,
   };
 }
-

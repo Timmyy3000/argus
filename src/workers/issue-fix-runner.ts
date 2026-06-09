@@ -9,6 +9,7 @@ import { recordDiscoveryResult, recordPullRequest, recordReviewResult, recordVal
 import { createInstallationToken } from "../github/app";
 import { createPullRequest } from "../github/pull-request";
 import { decidePublish } from "../publish/decision";
+import { createCommandExecutor } from "../sandbox/executor";
 import { runCommand } from "../system/command";
 import { runValidationCommands } from "../validation/run-validation";
 import { issueBranchName, prTitle } from "./branch";
@@ -58,8 +59,13 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "implementation_failed", reason: `branch checkout failed: ${checkout.stderr || checkout.stdout}` };
     }
 
+    const executor = createCommandExecutor({
+      mode: config.RESOLVER_SANDBOX_MODE,
+      image: config.RESOLVER_SANDBOX_IMAGE,
+      repoDir,
+    });
     const discovery = await discoverRepository(repoDir);
-    const validation = await runValidationCommands(repoDir, discovery.commands);
+    const validation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
     discovery.shouldWriteDiscoveredFile = shouldWriteDiscoveredFile(discovery, validation.passed);
     await recordDiscoveryResult(this.db, job.jobId, discovery);
     await recordValidationResult(this.db, {
@@ -82,7 +88,7 @@ export class IssueFixRunner implements WorkerRunner {
       issueBody: loaded.issue.body ?? "",
       discovery,
     });
-    const codex = await runCommand("codex", ["exec", prompt, "--skip-git-repo-check"], {
+    const codex = await executor.run("codex", ["exec", prompt, "--skip-git-repo-check"], {
       cwd: repoDir,
       timeoutMs: policy.maxRuntimeMinutes * 60_000,
       ...(config.OPENAI_API_KEY ? { env: { OPENAI_API_KEY: config.OPENAI_API_KEY } } : {}),
@@ -98,7 +104,7 @@ export class IssueFixRunner implements WorkerRunner {
       await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], { cwd: repoDir, timeoutMs: 60_000 });
     }
 
-    const postValidation = await runValidationCommands(repoDir, discovery.commands);
+    const postValidation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
     await recordValidationResult(this.db, {
       jobId: job.jobId,
       passed: postValidation.passed,
