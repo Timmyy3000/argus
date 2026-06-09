@@ -1,0 +1,34 @@
+{
+  "name": "resolver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "worker": "bun src/workers/launcher.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "queue:smoke": "bun scripts/pg-boss-smoke.ts",
+    "attempt:smoke": "bun scripts/attempt-smoke.ts"
+  },
+  "dependencies": {
+    "@octokit/app": "^16.0.1",
+    "@octokit/webhooks": "^14.0.2",
+    "drizzle-orm": "^0.44.7",
+    "fastify": "^5.6.2",
+    "fastify-raw-body": "^5.0.0",
+    "pg": "^8.16.3",
+    "pg-boss": "^10.3.2",
+    "postgres": "^3.4.7",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.3",
+    "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.8",
+    "typescript": "^5.9.3"
+  }
+}
