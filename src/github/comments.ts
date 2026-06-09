@@ -33,3 +33,14 @@ export function rejectionComment(reason: string): string {
     `Reason: ${reason}`,
   ].join("\n");
 }
+
+export function outcomeComment(input: { status: string; reason: string }): string {
+  const heading =
+    input.status === "completed"
+      ? "Resolver completed this automated bug-fix attempt."
+      : input.status === "needs_human"
+        ? "Resolver needs human attention on this bug-fix attempt."
+        : "Resolver could not complete this automated bug-fix attempt.";
+
+  return [heading, "", `Status: \`${input.status}\``, "", `Reason: ${input.reason}`].join("\n");
+}

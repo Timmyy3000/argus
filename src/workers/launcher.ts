@@ -7,6 +7,7 @@ import {
   startJobAttempt,
   type TerminalJobStatus,
 } from "../domain/attempts";
+import { notifyJobOutcome } from "../github/outcome";
 import { createBoss, ISSUE_FIX_QUEUE, type IssueFixJobPayload } from "../queue/boss";
 import { IssueFixRunner } from "./issue-fix-runner";
 import type { WorkerRunner } from "./types";
@@ -66,6 +67,18 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
       jobStatus,
       reason: result.reason,
     });
+
+    try {
+      await notifyJobOutcome(db, job.data.jobId, result);
+    } catch (error) {
+      await appendRedactedLogChunk(db, {
+        jobId: job.data.jobId,
+        attemptId: attempt.id,
+        sequence: 3,
+        stream: "system",
+        content: `GitHub outcome comment failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   });
 
   const shutdown = async () => {
