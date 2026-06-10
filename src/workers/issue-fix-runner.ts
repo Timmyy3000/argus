@@ -5,12 +5,20 @@ import type { Db } from "../db/client";
 import { jobs } from "../db/schema";
 import { discoverRepository } from "../discovery/discover";
 import { shouldWriteDiscoveredFile } from "../discovery/types";
-import { recordDiscoveryResult, recordPullRequest, recordReviewResult, recordValidationResult } from "../domain/results";
+import {
+  recordDiscoveryResult,
+  recordPullRequest,
+  recordReviewResult,
+  recordTriageResult,
+  recordValidationResult,
+} from "../domain/results";
 import { createInstallationToken } from "../github/app";
 import { createPullRequest } from "../github/pull-request";
 import { decidePublish } from "../publish/decision";
 import { createCommandExecutor } from "../sandbox/executor";
 import { runCommand } from "../system/command";
+import { triageIssue } from "../triage/triage";
+import type { TriageResult } from "../triage/types";
 import { runValidationCommands, type ValidationRunResult } from "../validation/run-validation";
 import { issueBranchName, prTitle } from "./branch";
 import { JobLogger } from "./job-logger";
@@ -80,6 +88,34 @@ export class IssueFixRunner implements WorkerRunner {
       image: config.ARGUS_SANDBOX_IMAGE,
       repoDir,
     });
+    const triage = await triageIssue({
+      issue: {
+        number: loaded.issue.number,
+        title: loaded.issue.title,
+        body: loaded.issue.body ?? "",
+      },
+      repoDir,
+      config,
+    });
+    await recordTriageResult(this.db, job.jobId, triage);
+    await logger.log(
+      "system",
+      `Triage (${triage.source}): ${triage.decision} as ${triage.category}. ${triage.reasoning}`,
+    );
+
+    if (triage.decision === "needs_more_info") {
+      return {
+        status: "needs_human",
+        reason: `Triage requested more information before attempting a fix: ${triage.reasoning}`,
+      };
+    }
+    if (triage.decision === "decline") {
+      return {
+        status: "needs_human",
+        reason: `Triage declined an automated fix attempt: ${triage.reasoning}`,
+      };
+    }
+
     const discovery = await discoverRepository(repoDir);
     await logger.log("system", `Discovery (${discovery.confidence} confidence, ${discovery.source}): ${JSON.stringify(discovery.commands)}`);
     const validation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
@@ -105,6 +141,7 @@ export class IssueFixRunner implements WorkerRunner {
       issueTitle: loaded.issue.title,
       issueBody: loaded.issue.body ?? "",
       discovery,
+      triage,
     });
     const codex = await executor.run("codex", ["exec", prompt, "--skip-git-repo-check"], {
       cwd: repoDir,
@@ -213,22 +250,35 @@ export class IssueFixRunner implements WorkerRunner {
   }
 }
 
-function buildCodexPrompt(input: {
+export function buildCodexPrompt(input: {
   issueNumber: number;
   issueTitle: string;
   issueBody: string;
   discovery: { commands: Record<string, string | null | undefined> };
+  triage?: Pick<TriageResult, "suspectFiles" | "plan" | "reasoning">;
 }): string {
-  return [
+  const sections = [
     `Fix GitHub issue #${input.issueNumber}: ${input.issueTitle}`,
     "",
     input.issueBody,
+  ];
+
+  if (input.triage?.plan) {
+    sections.push("", "Suggested fix plan from triage:", input.triage.plan);
+  }
+  if (input.triage && input.triage.suspectFiles.length > 0) {
+    sections.push("", "Files most likely involved:", input.triage.suspectFiles.map((file) => `- ${file}`).join("\n"));
+  }
+
+  sections.push(
     "",
     "Repo validation commands discovered:",
     JSON.stringify(input.discovery.commands, null, 2),
     "",
-    "Make the smallest correct code change. Do not expose secrets. Leave a concise summary of changes.",
-  ].join("\n");
+    "Make the smallest correct code change. When the repository has a test suite, add or extend a test that reproduces the issue and passes with your fix. Do not expose secrets. Leave a concise summary of changes.",
+  );
+
+  return sections.join("\n");
 }
 
 function buildPrBody(issueNumber: number, validationSummary: string, publishReason: string): string {
