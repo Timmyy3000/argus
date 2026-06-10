@@ -152,11 +152,18 @@ export class IssueFixRunner implements WorkerRunner {
       discovery,
       triage,
     });
-    const codex = await executor.run("codex", ["exec", prompt, "--skip-git-repo-check"], {
+    // The worker container (or docker sandbox) is the isolation boundary, and
+    // the review/publish gates guard the output. Codex's built-in bubblewrap
+    // sandbox cannot create user namespaces inside a container, so disable it.
+    const codex = await executor.run(
+      "codex",
+      ["exec", "--sandbox", "danger-full-access", "--skip-git-repo-check", prompt],
+      {
       cwd: repoDir,
       timeoutMs: policy.maxRuntimeMinutes * 60_000,
       ...(config.OPENAI_API_KEY ? { env: { OPENAI_API_KEY: config.OPENAI_API_KEY } } : {}),
-    });
+      },
+    );
     await logger.logCommand("codex exec", codex);
     if (codex.exitCode !== 0) {
       return { status: "implementation_failed", reason: `Codex failed: ${codex.stderr || codex.stdout}` };

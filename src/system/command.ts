@@ -20,6 +20,9 @@ export async function runCommand(command: string, args: string[], options: Comma
       env: { ...process.env, ...options.env },
       shell: false,
       windowsHide: true,
+      // stdin stays closed: tools like codex exec otherwise wait on an open
+      // pipe for input that never arrives.
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
