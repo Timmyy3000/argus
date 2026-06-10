@@ -49,6 +49,19 @@ const timestamps = {
     .$onUpdate(() => new Date()),
 };
 
+export const githubAppConfig = pgTable("github_app_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: text("app_id").notNull(),
+  privateKey: text("private_key").notNull(),
+  webhookSecret: text("webhook_secret").notNull(),
+  slug: text("slug"),
+  appName: text("app_name"),
+  htmlUrl: text("html_url"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  ...timestamps,
+});
+
 export const githubInstallations = pgTable("github_installations", {
   id: uuid("id").primaryKey().defaultRandom(),
   installationId: integer("installation_id").notNull().unique(),

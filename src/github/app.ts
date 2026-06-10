@@ -1,20 +1,18 @@
 import { App } from "@octokit/app";
-import { loadConfig } from "../config";
+import { getGitHubAppCredentials } from "./credentials";
 
-export function createGitHubApp() {
-  const config = loadConfig();
-  if (!config.GITHUB_APP_ID || !config.GITHUB_PRIVATE_KEY) {
-    return null;
-  }
+export async function createGitHubApp() {
+  const credentials = await getGitHubAppCredentials();
+  if (!credentials) return null;
 
   return new App({
-    appId: config.GITHUB_APP_ID,
-    privateKey: config.GITHUB_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    appId: credentials.appId,
+    privateKey: credentials.privateKey.replace(/\\n/g, "\n"),
   });
 }
 
 export async function createInstallationOctokit(installationId: number) {
-  const app = createGitHubApp();
+  const app = await createGitHubApp();
   if (!app) {
     throw new Error("GitHub App credentials are not configured");
   }
@@ -22,7 +20,7 @@ export async function createInstallationOctokit(installationId: number) {
 }
 
 export async function createInstallationToken(installationId: number): Promise<string> {
-  const app = createGitHubApp();
+  const app = await createGitHubApp();
   if (!app) {
     throw new Error("GitHub App credentials are not configured");
   }
@@ -38,4 +36,3 @@ export async function createInstallationToken(installationId: number): Promise<s
 
   return auth.token;
 }
-
