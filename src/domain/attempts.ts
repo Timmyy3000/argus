@@ -17,6 +17,13 @@ export type TerminalJobStatus =
   | "timed_out"
   | "needs_human";
 
+/**
+ * Leases are intentionally shorter than the job's max runtime: a healthy worker keeps
+ * extending the lease via heartbeats, so a dead worker is detected within minutes
+ * instead of after the full runtime budget.
+ */
+export const DEFAULT_LEASE_MINUTES = 10;
+
 export function leaseExpiryFromNow(maxRuntimeMinutes: number, now = new Date()): Date {
   return new Date(now.getTime() + maxRuntimeMinutes * 60_000);
 }
@@ -27,6 +34,7 @@ export async function startJobAttempt(
     jobId: string;
     workerId: string;
     maxRuntimeMinutes: number;
+    leaseMinutes?: number;
   },
 ): Promise<StartedAttempt> {
   const job = await db.query.jobs.findFirst({
@@ -37,7 +45,8 @@ export async function startJobAttempt(
 
   const attemptNumber = job.currentAttempt + 1;
   const now = new Date();
-  const leaseExpiresAt = leaseExpiryFromNow(input.maxRuntimeMinutes, now);
+  const leaseMinutes = Math.min(input.leaseMinutes ?? DEFAULT_LEASE_MINUTES, input.maxRuntimeMinutes);
+  const leaseExpiresAt = leaseExpiryFromNow(leaseMinutes, now);
   const attemptToken = randomUUID();
 
   const [attempt] = await db
@@ -153,7 +162,58 @@ export async function finishAttempt(
   return true;
 }
 
-export async function markExpiredAttempts(db: Db, now = new Date()): Promise<number> {
+export async function requeueJobForRetry(
+  db: Db,
+  input: {
+    attemptToken: string;
+    reason: string;
+  },
+): Promise<boolean> {
+  const attempt = await db.query.jobAttempts.findFirst({
+    where: eq(jobAttempts.attemptToken, input.attemptToken),
+  });
+  if (!attempt || attempt.status !== "running") return false;
+
+  const now = new Date();
+  const [updatedAttempt] = await db
+    .update(jobAttempts)
+    .set({
+      status: "failed",
+      finishedAt: now,
+      error: input.reason,
+      updatedAt: now,
+    })
+    .where(and(eq(jobAttempts.id, attempt.id), eq(jobAttempts.attemptToken, input.attemptToken)))
+    .returning();
+  if (!updatedAttempt) return false;
+
+  await db
+    .update(jobs)
+    .set({
+      status: "queued",
+      statusReason: input.reason,
+      updatedAt: now,
+    })
+    .where(eq(jobs.id, attempt.jobId));
+
+  await appendJobEvent(db, {
+    jobId: attempt.jobId,
+    type: "attempt.requeued",
+    message: input.reason,
+    metadata: { attemptId: attempt.id },
+  });
+
+  return true;
+}
+
+export type ExpiredAttemptOutcome = {
+  jobId: string;
+  repositoryId: string;
+  issueId: string;
+  requeued: boolean;
+};
+
+export async function markExpiredAttempts(db: Db, now = new Date()): Promise<ExpiredAttemptOutcome[]> {
   const expired = await db
     .update(jobAttempts)
     .set({
@@ -165,26 +225,41 @@ export async function markExpiredAttempts(db: Db, now = new Date()): Promise<num
     .where(and(eq(jobAttempts.status, "running"), lt(jobAttempts.leaseExpiresAt, now)))
     .returning();
 
+  const outcomes: ExpiredAttemptOutcome[] = [];
   for (const attempt of expired) {
+    const job = await db.query.jobs.findFirst({ where: eq(jobs.id, attempt.jobId) });
+    if (!job) continue;
+
+    const requeued = job.currentAttempt < job.maxAttempts;
     await db
       .update(jobs)
-      .set({
-        status: "timed_out",
-        statusReason: "Attempt lease expired",
-        finishedAt: now,
-        updatedAt: now,
-      })
+      .set(
+        requeued
+          ? {
+              status: "queued",
+              statusReason: "Attempt lease expired; job requeued for another attempt",
+              updatedAt: now,
+            }
+          : {
+              status: "timed_out",
+              statusReason: "Attempt lease expired",
+              finishedAt: now,
+              updatedAt: now,
+            },
+      )
       .where(eq(jobs.id, attempt.jobId));
 
     await appendJobEvent(db, {
       jobId: attempt.jobId,
       type: "attempt.stale",
-      message: "Attempt lease expired",
-      metadata: { attemptId: attempt.id },
+      message: requeued ? "Attempt lease expired; job requeued" : "Attempt lease expired",
+      metadata: { attemptId: attempt.id, requeued },
     });
+
+    outcomes.push({ jobId: job.id, repositoryId: job.repositoryId, issueId: job.issueId, requeued });
   }
 
-  return expired.length;
+  return outcomes;
 }
 
 export async function appendJobEvent(
@@ -224,7 +299,10 @@ export async function appendRedactedLogChunk(
   });
 }
 
-export async function getJobRuntimePolicy(db: Db, jobId: string): Promise<{ maxRuntimeMinutes: number }> {
+export async function getJobRuntimePolicy(
+  db: Db,
+  jobId: string,
+): Promise<{ maxRuntimeMinutes: number; maxAttempts: number }> {
   const job = await db.query.jobs.findFirst({
     where: eq(jobs.id, jobId),
     with: { repository: true },
@@ -235,6 +313,9 @@ export async function getJobRuntimePolicy(db: Db, jobId: string): Promise<{ maxR
     where: eq(repositoryPolicies.repositoryId, job.repositoryId),
   });
 
-  return { maxRuntimeMinutes: policy?.maxRuntimeMinutes ?? 45 };
+  return {
+    maxRuntimeMinutes: policy?.maxRuntimeMinutes ?? 45,
+    maxAttempts: job.maxAttempts,
+  };
 }
 
