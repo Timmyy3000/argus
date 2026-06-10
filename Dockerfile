@@ -8,6 +8,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
+# Codex CLI for the implementation stage. Authenticates either with
+# OPENAI_API_KEY or a ChatGPT subscription via a mounted ~/.codex/auth.json.
+ENV BUN_INSTALL_BIN=/usr/local/bin
+RUN bun install -g @openai/codex
+
 COPY package.json bun.lock tsconfig.json drizzle.config.ts ./
 COPY drizzle ./drizzle
 RUN bun install --frozen-lockfile

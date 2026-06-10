@@ -89,6 +89,9 @@ services:
     command: ["bun", "run", "worker"]
     volumes:
       - argus_work:/app/.argus-work
+      # Writable so Codex can rotate its subscription refresh token. Seed it
+      # with the auth.json produced by `codex login` on a trusted machine.
+      - codex_home:/root/.codex
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,3 +102,4 @@ services:
 volumes:
   postgres_data:
   argus_work:
+  codex_home:
