@@ -14,6 +14,7 @@ import { actorRoleIsAllowed, ensureRepositoryPolicy, labelTriggersPolicy } from 
 import { enqueueIssueFix } from "../queue/boss";
 import type PgBoss from "pg-boss";
 import { acceptedComment, createIssueComment, rejectionComment } from "./comments";
+import { resolveSenderPermission, type PermissionFetcher } from "./permissions";
 
 export type WebhookResult = {
   status: "ignored" | "accepted" | "rejected" | "duplicate";
@@ -40,6 +41,7 @@ export async function handleGitHubWebhook(input: {
   deliveryId: string;
   eventName: string;
   payload: unknown;
+  permissionFetcher?: PermissionFetcher;
 }): Promise<WebhookResult> {
   const action = getAction(input.payload);
   const repositoryFullName = getRepositoryFullName(input.payload);
@@ -114,7 +116,13 @@ export async function handleGitHubWebhook(input: {
       return { status: "ignored", reason: "Label does not match repository trigger policy" };
     }
 
-    const permission = event.issue.author_association === "OWNER" ? "admin" : await getSenderPermission(event);
+    const permission = await resolveSenderPermission({
+      installationId: event.installation.id,
+      owner: repository.owner,
+      repo: repository.name,
+      senderLogin: event.sender.login,
+      ...(input.permissionFetcher ? { fetcher: input.permissionFetcher } : {}),
+    });
     if (!actorRoleIsAllowed(policy, permission)) {
       const reason = `Sender permission '${permission ?? "unknown"}' is not allowed`;
       await rejectIssueFix(input.db, {
@@ -200,18 +208,4 @@ function getRepositoryFullName(payload: unknown): string | undefined {
     return payload.repository.full_name;
   }
   return undefined;
-}
-
-async function getSenderPermission(event: EmitterWebhookEvent<"issues">["payload"]): Promise<string | undefined> {
-  // Phase 1 uses author association as the local trust signal. A later hardening pass can
-  // call GitHub's collaborator permission API when the webhook payload is insufficient.
-  switch (event.issue.author_association) {
-    case "OWNER":
-    case "MEMBER":
-      return "admin";
-    case "COLLABORATOR":
-      return "write";
-    default:
-      return undefined;
-  }
 }
