@@ -86,6 +86,14 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "implementation_failed", reason: `branch checkout failed: ${checkout.stderr || checkout.stdout}` };
     }
 
+    // Fresh clones have no committer identity; without one, git commit fails
+    // and an empty branch gets pushed.
+    await runCommand("git", ["config", "user.name", "argus[bot]"], { cwd: repoDir, timeoutMs: 30_000 });
+    await runCommand("git", ["config", "user.email", "argus[bot]@users.noreply.github.com"], {
+      cwd: repoDir,
+      timeoutMs: 30_000,
+    });
+
     const executor = createCommandExecutor({
       mode: config.ARGUS_SANDBOX_MODE,
       image: config.ARGUS_SANDBOX_IMAGE,
@@ -177,7 +185,16 @@ export class IssueFixRunner implements WorkerRunner {
     });
     const hasDiff = stagedDiff.stdout.trim().length > 0;
     if (hasDiff) {
-      await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], { cwd: repoDir, timeoutMs: 60_000 });
+      const commit = await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], {
+        cwd: repoDir,
+        timeoutMs: 60_000,
+      });
+      if (commit.exitCode !== 0) {
+        return {
+          status: "implementation_failed",
+          reason: `git commit failed: ${commit.stderr || commit.stdout}`,
+        };
+      }
     }
 
     const postValidation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
