@@ -43,6 +43,8 @@ GITHUB_PRIVATE_KEY=
 GITHUB_WEBHOOK_SECRET=
 OPENAI_API_KEY=
 ARGUS_ENABLE_CODEX=false
+ARGUS_ENABLE_TRIAGE=false
+ARGUS_ENABLE_LLM_REVIEW=false
 ARGUS_ENABLE_GIT_PUSH=false
 ARGUS_SANDBOX_MODE=host
 ARGUS_SANDBOX_IMAGE=oven/bun:1
@@ -50,9 +52,12 @@ ARGUS_SANDBOX_IMAGE=oven/bun:1
 
 Important gates:
 
-- `ARGUS_ENABLE_CODEX=false` clones and discovers a repo, then stops before implementation.
+- `ARGUS_ENABLE_CODEX=false` clones, triages, and discovers a repo, then stops before implementation.
+- `ARGUS_ENABLE_TRIAGE=false` uses a deterministic heuristic triage instead of the LLM (an issue is only screened out when it is clearly unactionable).
+- `ARGUS_ENABLE_LLM_REVIEW=false` skips the LLM diff review; the deterministic mechanical checks (protected paths, deleted tests, diff size, added secrets) always run.
 - `ARGUS_ENABLE_GIT_PUSH=false` allows implementation and validation but stops before pushing a branch or opening a PR.
-- `ARGUS_SANDBOX_MODE=docker` wraps validation and Codex commands in `docker run --network none`.
+- `ARGUS_SANDBOX_MODE=docker` wraps validation and Codex commands in a hardened container (`--cap-drop ALL`, `no-new-privileges`, memory/cpu/pid limits). `ARGUS_SANDBOX_NETWORK=none` makes it fully offline; the default `bridge` allows dependency installs and Codex.
+- `ARGUS_LLM_MODEL` / `ARGUS_LLM_BASE_URL` configure the model used for triage and review; any OpenAI-compatible endpoint works.
 
 ## GitHub App
 
@@ -68,11 +73,15 @@ Install it on the repos Argus should watch. A labeled issue starts a job when th
 ## Runtime Flow
 
 1. GitHub sends an `issues.labeled` webhook.
-2. Argus verifies the signature, upserts installation/repository/issue records, and checks the repo policy.
-3. A pg-boss job is queued idempotently for the issue and label.
-4. The worker leases an attempt, clones the repo, creates a branch, discovers repo commands, and runs validation.
-5. If Codex is enabled, the worker runs `codex exec`, commits any diff, validates again, applies the MVP review gate, and decides whether a PR can be published.
-6. If git push is enabled, Argus pushes the branch and opens a PR. Otherwise it marks the job as needing human attention with a clear reason.
+2. Argus verifies the signature, upserts installation/repository/issue records, checks the repo policy, resolves the label actor's permission via the collaborator API, and enforces the per-repo concurrency limit.
+3. A pg-boss job is queued idempotently for the issue and label. Removing the label cancels the active job.
+4. The worker leases an attempt (kept alive by heartbeats; stale attempts are requeued while attempt budget remains), clones the repo, creates a branch, and triages the issue: unactionable issues stop here with a comment explaining what is missing.
+5. The worker discovers repo commands and runs baseline validation, so a repository that was already failing is not blamed on the fix.
+6. If Codex is enabled, the worker runs `codex exec` with the triage plan and suspect files in the prompt, commits any diff, and validates again.
+7. The review gate runs: mechanical checks (protected paths, deleted tests, diff size, added secrets) plus the optional LLM diff review. The publish decision combines review, the baseline-vs-post validation comparison, and discovery confidence into `normal_pr`, `draft_pr`, or `no_pr`.
+8. If git push is enabled, Argus pushes the branch and opens a PR whose body carries the triage, validation, and review summaries. Otherwise it marks the job as needing human attention with a clear reason.
+
+Transient failures (clone, push, worker crashes) are retried up to the job's `maxAttempts`. All command output is stored as redacted log chunks, visible through the status API.
 
 ## Status API
 
@@ -80,7 +89,7 @@ Install it on the repos Argus should watch. A labeled issue starts a job when th
 - `GET /jobs`
 - `GET /jobs/:id`
 
-Job details include attempts, events, recent redacted logs, discovery results, validation results, review results, publish decision, and PR data.
+Job details include attempts, events, recent redacted logs, triage results, discovery results, validation results, review results, publish decision, and PR data.
 
 ## VPS Deployment
 
@@ -129,15 +138,17 @@ Containerizing Argus does not require the worker to control Docker. `ARGUS_SANDB
 
 ## Current Status
 
-Phase 1 MVP foundation is implemented:
+The MVP issue-to-PR loop is implemented end to end:
 
-- GitHub webhook intake and signature verification
-- Repository policy checks and default trigger label
-- pg-boss queueing and smoke verification
-- Job attempt leasing, token fencing, stale attempt handling, and redacted logs
+- GitHub webhook intake with signature verification, collaborator permission checks, per-repo concurrency, and cancellation on label removal
+- Issue triage (LLM with deterministic fallback) that screens out unactionable issues and produces a fix plan with suspect files
 - Repo convention discovery with optional `.agents/bug-resolver/discovered.yml`
-- Validation command execution
-- Gated Codex execution and gated git push/PR creation
-- Optional Docker command sandbox
-- GitHub accepted/outcome comments
-- Operator status endpoints
+- Baseline and post-fix validation with regression-aware comparison
+- Gated Codex execution with triage context in the prompt
+- Review gate: deterministic mechanical checks plus optional LLM diff review, feeding a normal/draft/no PR decision
+- Worker reliability: heartbeat-extended leases, stale-attempt requeue, crash recovery, and retry of transient failures
+- Hardened, configurable Docker command sandbox
+- Full redacted command logs, triage/validation/review results, and PR data on the status API
+- GitHub accepted/outcome/cancellation comments
+
+Suggested rollout: run with all gates off to prove intake, then enable `ARGUS_ENABLE_TRIAGE`, then `ARGUS_ENABLE_CODEX` (review logs and diffs), then `ARGUS_ENABLE_LLM_REVIEW` and finally `ARGUS_ENABLE_GIT_PUSH`.
