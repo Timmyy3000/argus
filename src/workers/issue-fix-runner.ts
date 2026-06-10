@@ -11,34 +11,45 @@ import { createPullRequest } from "../github/pull-request";
 import { decidePublish } from "../publish/decision";
 import { createCommandExecutor } from "../sandbox/executor";
 import { runCommand } from "../system/command";
-import { runValidationCommands } from "../validation/run-validation";
+import { runValidationCommands, type ValidationRunResult } from "../validation/run-validation";
 import { issueBranchName, prTitle } from "./branch";
+import { JobLogger } from "./job-logger";
 import type { WorkerJob, WorkerRunner, WorkerRunResult } from "./types";
-import { loadConfig } from "../config";
+import { loadConfig, type AppConfig } from "../config";
 
 export class IssueFixRunner implements WorkerRunner {
   constructor(private readonly db: Db) {}
 
   async run(job: WorkerJob): Promise<WorkerRunResult> {
     const config = loadConfig();
-    const loaded = await this.db.query.jobs.findFirst({
-      where: eq(jobs.id, job.jobId),
-      with: {
-        repository: {
-          with: {
-            installation: true,
-            policy: true,
-          },
-        },
-        issue: true,
-      },
-    });
+    const loaded = await this.loadJob(job.jobId);
     if (!loaded) return { status: "implementation_failed", reason: `Job ${job.jobId} was not found` };
     const policy = loaded.repository.policy;
     if (!policy) return { status: "implementation_failed", reason: "Repository policy was not found" };
 
     const token = await createInstallationToken(loaded.repository.installation.installationId);
+    const logger = new JobLogger(this.db, job.jobId, job.attemptId, [token]);
     const workspace = join(process.cwd(), config.ARGUS_WORKDIR, job.jobId);
+
+    try {
+      return await this.execute({ job, config, loaded, policy, token, logger, workspace });
+    } finally {
+      if (!config.ARGUS_KEEP_WORKSPACE) {
+        await rm(workspace, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  private async execute(input: {
+    job: WorkerJob;
+    config: AppConfig;
+    loaded: NonNullable<Awaited<ReturnType<IssueFixRunner["loadJob"]>>>;
+    policy: NonNullable<NonNullable<Awaited<ReturnType<IssueFixRunner["loadJob"]>>>["repository"]["policy"]>;
+    token: string;
+    logger: JobLogger;
+    workspace: string;
+  }): Promise<WorkerRunResult> {
+    const { job, config, loaded, policy, token, logger, workspace } = input;
     const repoDir = join(workspace, loaded.repository.name);
     const branch = issueBranchName(loaded.issue.number);
 
@@ -50,6 +61,7 @@ export class IssueFixRunner implements WorkerRunner {
       cwd: workspace,
       timeoutMs: 10 * 60_000,
     });
+    await logger.logCommand(`git clone ${loaded.repository.fullName}`, clone);
     if (clone.exitCode !== 0) {
       return {
         status: "implementation_failed",
@@ -69,7 +81,9 @@ export class IssueFixRunner implements WorkerRunner {
       repoDir,
     });
     const discovery = await discoverRepository(repoDir);
+    await logger.log("system", `Discovery (${discovery.confidence} confidence, ${discovery.source}): ${JSON.stringify(discovery.commands)}`);
     const validation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
+    await this.logValidation(logger, "baseline validation", validation);
     discovery.shouldWriteDiscoveredFile = shouldWriteDiscoveredFile(discovery, validation.passed);
     await recordDiscoveryResult(this.db, job.jobId, discovery);
     await recordValidationResult(this.db, {
@@ -97,6 +111,7 @@ export class IssueFixRunner implements WorkerRunner {
       timeoutMs: policy.maxRuntimeMinutes * 60_000,
       ...(config.OPENAI_API_KEY ? { env: { OPENAI_API_KEY: config.OPENAI_API_KEY } } : {}),
     });
+    await logger.logCommand("codex exec", codex);
     if (codex.exitCode !== 0) {
       return { status: "implementation_failed", reason: `Codex failed: ${codex.stderr || codex.stdout}` };
     }
@@ -109,6 +124,7 @@ export class IssueFixRunner implements WorkerRunner {
     }
 
     const postValidation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
+    await this.logValidation(logger, "post-implementation validation", postValidation);
     await recordValidationResult(this.db, {
       jobId: job.jobId,
       passed: postValidation.passed,
@@ -150,6 +166,7 @@ export class IssueFixRunner implements WorkerRunner {
     }
 
     const push = await runCommand("git", ["push", "origin", branch], { cwd: repoDir, timeoutMs: 5 * 60_000 });
+    await logger.logCommand(`git push origin ${branch}`, push);
     if (push.exitCode !== 0) {
       return {
         status: "publish_failed",
@@ -171,6 +188,28 @@ export class IssueFixRunner implements WorkerRunner {
     await recordPullRequest(this.db, { jobId: job.jobId, ...pr, draft: publish.decision === "draft_pr" });
 
     return { status: "completed", reason: `Opened PR ${pr.url}` };
+  }
+
+  private async logValidation(logger: JobLogger, label: string, validation: ValidationRunResult): Promise<void> {
+    await logger.log("system", `${label}: ${validation.summary}`);
+    for (const result of validation.results) {
+      await logger.logCommand(result.command, result);
+    }
+  }
+
+  private loadJob(jobId: string) {
+    return this.db.query.jobs.findFirst({
+      where: eq(jobs.id, jobId),
+      with: {
+        repository: {
+          with: {
+            installation: true,
+            policy: true,
+          },
+        },
+        issue: true,
+      },
+    });
   }
 }
 

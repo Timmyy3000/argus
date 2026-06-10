@@ -10,6 +10,7 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   ARGUS_WORKDIR: z.string().default(".argus-work"),
+  ARGUS_KEEP_WORKSPACE: z.coerce.boolean().default(false),
   ARGUS_ENABLE_CODEX: z.coerce.boolean().default(false),
   ARGUS_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
   ARGUS_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
