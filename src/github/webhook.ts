@@ -71,6 +71,12 @@ export async function handleGitHubWebhook(input: {
   }
 
   try {
+    if (input.eventName === "installation" || input.eventName === "installation_repositories") {
+      const result = await handleInstallationEvent(input.db, input.payload);
+      await markWebhookDelivery(input.db, input.deliveryId, `installation:${result.reason}`);
+      return result;
+    }
+
     if (input.eventName !== "issues") {
       await markWebhookDelivery(input.db, input.deliveryId, "ignored:unsupported_event");
       return { status: "ignored", reason: "Unsupported event" };
@@ -248,6 +254,51 @@ export async function handleGitHubWebhook(input: {
     await markWebhookDelivery(input.db, input.deliveryId, "error", error instanceof Error ? error.message : String(error));
     throw error;
   }
+}
+
+type InstallationEventPayload = {
+  action?: string;
+  installation?: {
+    id: number;
+    account?: { login?: string; type?: string };
+  };
+  repositories?: Array<{ id: number; name: string; full_name: string; private?: boolean }>;
+  repositories_added?: Array<{ id: number; name: string; full_name: string; private?: boolean }>;
+};
+
+/**
+ * Keeps the installation and repository tables in sync as soon as the App is
+ * installed or repositories are added, so the dashboard shows connected repos
+ * without waiting for the first issue webhook.
+ */
+async function handleInstallationEvent(db: Db, payload: unknown): Promise<WebhookResult> {
+  const event = payload as InstallationEventPayload;
+  if (!event.installation?.id || !event.installation.account?.login) {
+    return { status: "ignored", reason: "Installation payload was incomplete" };
+  }
+
+  const installation = await upsertInstallation(db, {
+    installationId: event.installation.id,
+    accountLogin: event.installation.account.login,
+    accountType: event.installation.account.type ?? "unknown",
+  });
+
+  const repos = [...(event.repositories ?? []), ...(event.repositories_added ?? [])];
+  for (const repo of repos) {
+    const [owner] = repo.full_name.split("/");
+    await upsertRepository(db, installation.id, {
+      githubId: repo.id,
+      owner: owner ?? event.installation.account.login,
+      name: repo.name,
+      fullName: repo.full_name,
+      private: repo.private ?? false,
+    });
+  }
+
+  return {
+    status: "accepted",
+    reason: `Installation ${event.action ?? "event"} recorded with ${repos.length} repositories`,
+  };
 }
 
 function getAction(payload: unknown): string | undefined {
