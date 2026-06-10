@@ -51,7 +51,11 @@ export class IssueFixRunner implements WorkerRunner {
       timeoutMs: 10 * 60_000,
     });
     if (clone.exitCode !== 0) {
-      return { status: "implementation_failed", reason: `git clone failed: ${clone.stderr || clone.stdout}` };
+      return {
+        status: "implementation_failed",
+        reason: `git clone failed: ${clone.stderr || clone.stdout}`,
+        retryable: true,
+      };
     }
 
     const checkout = await runCommand("git", ["checkout", "-b", branch], { cwd: repoDir, timeoutMs: 60_000 });
@@ -147,7 +151,11 @@ export class IssueFixRunner implements WorkerRunner {
 
     const push = await runCommand("git", ["push", "origin", branch], { cwd: repoDir, timeoutMs: 5 * 60_000 });
     if (push.exitCode !== 0) {
-      return { status: "publish_failed", reason: `git push failed: ${push.stderr || push.stdout}` };
+      return {
+        status: "publish_failed",
+        reason: `git push failed: ${push.stderr || push.stdout}`,
+        retryable: true,
+      };
     }
 
     const pr = await createPullRequest({
