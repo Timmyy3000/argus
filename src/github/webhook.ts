@@ -2,7 +2,9 @@ import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { Webhooks } from "@octokit/webhooks";
 import type { Db } from "../db/client";
 import {
+  cancelActiveJob,
   createIssueFixJob,
+  findActiveJob,
   markWebhookDelivery,
   recordWebhookDelivery,
   rejectIssueFix,
@@ -10,14 +12,19 @@ import {
   upsertIssue,
   upsertRepository,
 } from "../domain/jobs";
-import { actorRoleIsAllowed, ensureRepositoryPolicy, labelTriggersPolicy } from "../domain/policies";
+import {
+  actorRoleIsAllowed,
+  ensureRepositoryPolicy,
+  labelTriggersPolicy,
+  repositoryHasRunningCapacity,
+} from "../domain/policies";
 import { enqueueIssueFix } from "../queue/boss";
 import type PgBoss from "pg-boss";
-import { acceptedComment, createIssueComment, rejectionComment } from "./comments";
+import { acceptedComment, cancellationComment, createIssueComment, rejectionComment } from "./comments";
 import { resolveSenderPermission, type PermissionFetcher } from "./permissions";
 
 export type WebhookResult = {
-  status: "ignored" | "accepted" | "rejected" | "duplicate";
+  status: "ignored" | "accepted" | "rejected" | "duplicate" | "cancelled";
   reason: string;
   jobId?: string;
 };
@@ -70,7 +77,7 @@ export async function handleGitHubWebhook(input: {
     }
 
     const event = input.payload as EmitterWebhookEvent<"issues">["payload"];
-    if (event.action !== "labeled") {
+    if (event.action !== "labeled" && event.action !== "unlabeled") {
       await markWebhookDelivery(input.db, input.deliveryId, "ignored:unsupported_action");
       return { status: "ignored", reason: "Unsupported issues action" };
     }
@@ -116,6 +123,28 @@ export async function handleGitHubWebhook(input: {
       return { status: "ignored", reason: "Label does not match repository trigger policy" };
     }
 
+    if (event.action === "unlabeled") {
+      const cancelled = await cancelActiveJob(input.db, {
+        repositoryId: repository.id,
+        issueId: issue.id,
+        triggerLabel: labelName,
+        reason: `Trigger label was removed by ${event.sender.login}`,
+      });
+      if (!cancelled) {
+        await markWebhookDelivery(input.db, input.deliveryId, "ignored:no_active_job");
+        return { status: "ignored", reason: "No active job to cancel" };
+      }
+      await createIssueComment({
+        installationId: event.installation.id,
+        owner: repository.owner,
+        repo: repository.name,
+        issueNumber: issue.number,
+        body: cancellationComment(),
+      });
+      await markWebhookDelivery(input.db, input.deliveryId, "cancelled");
+      return { status: "cancelled", reason: "Active job cancelled because the trigger label was removed", jobId: cancelled.jobId };
+    }
+
     const permission = await resolveSenderPermission({
       installationId: event.installation.id,
       owner: repository.owner,
@@ -133,6 +162,39 @@ export async function handleGitHubWebhook(input: {
         reason,
       });
       await markWebhookDelivery(input.db, input.deliveryId, "rejected:actor_not_allowed");
+      if (policy.commentOnRejection) {
+        await createIssueComment({
+          installationId: event.installation.id,
+          owner: repository.owner,
+          repo: repository.name,
+          issueNumber: issue.number,
+          body: rejectionComment(reason),
+        });
+      }
+      return { status: "rejected", reason };
+    }
+
+    const existingActive = await findActiveJob(input.db, {
+      repositoryId: repository.id,
+      issueId: issue.id,
+      triggerLabel: labelName,
+    });
+    if (existingActive) {
+      await markWebhookDelivery(input.db, input.deliveryId, "duplicate:active_job_exists");
+      return { status: "duplicate", reason: "Active job already exists", jobId: existingActive.id };
+    }
+
+    const hasCapacity = await repositoryHasRunningCapacity(input.db, repository.id, policy.repoConcurrency);
+    if (!hasCapacity) {
+      const reason = `Repository already has ${policy.repoConcurrency} active job(s); remove and re-apply the label once they finish`;
+      await rejectIssueFix(input.db, {
+        repositoryId: repository.id,
+        issueId: issue.id,
+        triggerLabel: labelName,
+        requestedBy: event.sender.login,
+        reason,
+      });
+      await markWebhookDelivery(input.db, input.deliveryId, "rejected:concurrency_limit");
       if (policy.commentOnRejection) {
         await createIssueComment({
           installationId: event.installation.id,

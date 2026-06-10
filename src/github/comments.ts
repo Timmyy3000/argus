@@ -34,6 +34,14 @@ export function rejectionComment(reason: string): string {
   ].join("\n");
 }
 
+export function cancellationComment(): string {
+  return [
+    "Argus cancelled the automated bug-fix attempt for this issue.",
+    "",
+    "The trigger label was removed. Re-apply the label to start a new attempt.",
+  ].join("\n");
+}
+
 export function outcomeComment(input: { status: string; reason: string }): string {
   const heading =
     input.status === "completed"
