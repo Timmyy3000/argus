@@ -20,6 +20,10 @@ const envSchema = z.object({
   ARGUS_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
   ARGUS_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
   ARGUS_SANDBOX_IMAGE: z.string().default("oven/bun:1"),
+  ARGUS_SANDBOX_NETWORK: z.enum(["none", "bridge"]).default("bridge"),
+  ARGUS_SANDBOX_MEMORY: z.string().default("2g"),
+  ARGUS_SANDBOX_CPUS: z.string().default("2"),
+  ARGUS_SANDBOX_PIDS: z.coerce.number().int().positive().default(512),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

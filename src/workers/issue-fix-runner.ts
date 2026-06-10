@@ -90,6 +90,12 @@ export class IssueFixRunner implements WorkerRunner {
       mode: config.ARGUS_SANDBOX_MODE,
       image: config.ARGUS_SANDBOX_IMAGE,
       repoDir,
+      network: config.ARGUS_SANDBOX_NETWORK,
+      limits: {
+        memory: config.ARGUS_SANDBOX_MEMORY,
+        cpus: config.ARGUS_SANDBOX_CPUS,
+        pids: config.ARGUS_SANDBOX_PIDS,
+      },
     });
     const triage = await triageIssue({
       issue: {
