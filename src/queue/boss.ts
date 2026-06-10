@@ -16,10 +16,23 @@ export function createBoss(databaseUrl = loadConfig().DATABASE_URL): PgBoss {
   });
 }
 
-export async function enqueueIssueFix(boss: PgBoss, payload: IssueFixJobPayload): Promise<string | null> {
+export async function enqueueIssueFix(
+  boss: PgBoss,
+  payload: IssueFixJobPayload,
+  options: {
+    /**
+     * Retries are sent while the original pg-boss job is still active, so they
+     * must skip the singleton key — duplicate suppression for fresh intake is
+     * also enforced at the database layer by the active-job unique constraint.
+     */
+    isRetry?: boolean;
+    delaySeconds?: number;
+  } = {},
+): Promise<string | null> {
   await boss.createQueue(ISSUE_FIX_QUEUE);
   return boss.send(ISSUE_FIX_QUEUE, payload, {
-    singletonKey: `${payload.repositoryId}:${payload.issueId}`,
+    ...(options.isRetry ? {} : { singletonKey: `${payload.repositoryId}:${payload.issueId}` }),
+    ...(options.delaySeconds ? { startAfter: options.delaySeconds } : {}),
     retryLimit: 0,
     expireInSeconds: 60 * 60,
   });

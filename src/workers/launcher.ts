@@ -30,11 +30,15 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
     const expired = await markExpiredAttempts(db);
     for (const outcome of expired) {
       if (outcome.requeued) {
-        await enqueueIssueFix(boss, {
-          jobId: outcome.jobId,
-          repositoryId: outcome.repositoryId,
-          issueId: outcome.issueId,
-        });
+        await enqueueIssueFix(
+          boss,
+          {
+            jobId: outcome.jobId,
+            repositoryId: outcome.repositoryId,
+            issueId: outcome.issueId,
+          },
+          { isRetry: true },
+        );
       }
     }
 
@@ -104,7 +108,7 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
 
     if (outcome.action === "retry") {
       await requeueJobForRetry(db, { attemptToken: attempt.attemptToken, reason: outcome.reason });
-      await enqueueIssueFix(boss, job.data);
+      await enqueueIssueFix(boss, job.data, { isRetry: true, delaySeconds: 30 });
       return;
     }
 
