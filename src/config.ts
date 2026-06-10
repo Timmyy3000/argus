@@ -13,6 +13,8 @@ const envSchema = z.object({
   ARGUS_KEEP_WORKSPACE: z.coerce.boolean().default(false),
   ARGUS_ENABLE_CODEX: z.coerce.boolean().default(false),
   ARGUS_ENABLE_TRIAGE: z.coerce.boolean().default(false),
+  ARGUS_ENABLE_LLM_REVIEW: z.coerce.boolean().default(false),
+  ARGUS_MAX_DIFF_BYTES: z.coerce.number().int().positive().default(200_000),
   ARGUS_LLM_MODEL: z.string().default("gpt-5-mini"),
   ARGUS_LLM_BASE_URL: z.string().default("https://api.openai.com/v1"),
   ARGUS_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),

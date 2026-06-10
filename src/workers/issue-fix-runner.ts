@@ -15,10 +15,13 @@ import {
 import { createInstallationToken } from "../github/app";
 import { createPullRequest } from "../github/pull-request";
 import { decidePublish } from "../publish/decision";
+import { reviewDiffWithLlm } from "../review/llm-review";
+import { parseNameStatus, runMechanicalChecks } from "../review/mechanical";
 import { createCommandExecutor } from "../sandbox/executor";
 import { runCommand } from "../system/command";
 import { triageIssue } from "../triage/triage";
 import type { TriageResult } from "../triage/types";
+import { compareValidation } from "../validation/compare";
 import { runValidationCommands, type ValidationRunResult } from "../validation/run-validation";
 import { issueBranchName, prTitle } from "./branch";
 import { JobLogger } from "./job-logger";
@@ -153,10 +156,14 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "implementation_failed", reason: `Codex failed: ${codex.stderr || codex.stdout}` };
     }
 
-    const status = await runCommand("git", ["status", "--porcelain"], { cwd: repoDir, timeoutMs: 60_000 });
-    const hasDiff = status.stdout.trim().length > 0;
+    await runCommand("git", ["add", "."], { cwd: repoDir, timeoutMs: 60_000 });
+    const stagedDiff = await runCommand("git", ["diff", "--cached"], { cwd: repoDir, timeoutMs: 60_000 });
+    const stagedNameStatus = await runCommand("git", ["diff", "--cached", "--name-status"], {
+      cwd: repoDir,
+      timeoutMs: 60_000,
+    });
+    const hasDiff = stagedDiff.stdout.trim().length > 0;
     if (hasDiff) {
-      await runCommand("git", ["add", "."], { cwd: repoDir, timeoutMs: 60_000 });
       await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], { cwd: repoDir, timeoutMs: 60_000 });
     }
 
@@ -169,18 +176,51 @@ export class IssueFixRunner implements WorkerRunner {
       details: { results: postValidation.results, afterCodex: true },
     });
 
-    const reviewPassed = postValidation.passed && hasDiff;
+    const comparison = compareValidation(validation, postValidation);
+    await logger.log("system", `Validation comparison: ${comparison.verdict}. ${comparison.summary}`);
+
+    const mechanical = runMechanicalChecks({
+      diff: stagedDiff.stdout,
+      changedFiles: parseNameStatus(stagedNameStatus.stdout),
+      maxDiffBytes: config.ARGUS_MAX_DIFF_BYTES,
+    });
+    const llmReview =
+      hasDiff && mechanical.passed
+        ? await reviewDiffWithLlm({
+            issue: {
+              number: loaded.issue.number,
+              title: loaded.issue.title,
+              body: loaded.issue.body ?? "",
+            },
+            diff: stagedDiff.stdout,
+            config,
+          })
+        : { passed: false, summary: "LLM review skipped", blockers: [], degraded: false, skipped: true };
+
+    const reviewPassed = hasDiff && mechanical.passed && llmReview.passed;
+    const blockers = [
+      ...(hasDiff ? [] : ["No code changes were produced"]),
+      ...mechanical.blockers,
+      ...llmReview.blockers,
+    ];
+    const reviewSummary = !hasDiff
+      ? "Review gate blocked: no code changes were produced"
+      : !mechanical.passed
+        ? `Mechanical checks blocked the change: ${mechanical.blockers.join("; ")}`
+        : llmReview.summary;
     await recordReviewResult(this.db, {
       jobId: job.jobId,
       passed: reviewPassed,
-      summary: reviewPassed ? "Review gate passed by MVP validation proxy" : "Review gate blocked by missing diff or validation failure",
-      blockers: reviewPassed ? [] : ["MVP review proxy requires diff and passing validation"],
+      summary: reviewSummary,
+      blockers,
     });
+    await logger.log("system", `Review gate: ${reviewPassed ? "passed" : "blocked"}. ${reviewSummary}`);
 
     const publish = decidePublish({
       hasDiff,
-      validationPassed: postValidation.passed,
+      validationVerdict: comparison.verdict,
       reviewPassed,
+      reviewDegraded: llmReview.degraded,
       discoveryConfidence: discovery.confidence,
       allowDraftPr: policy.allowDraftPr,
       publishOnLowConfidence: policy.publishOnLowConfidence,
@@ -219,7 +259,13 @@ export class IssueFixRunner implements WorkerRunner {
       title: prTitle(loaded.issue.number, loaded.issue.title),
       head: branch,
       base: loaded.repository.defaultBranch,
-      body: buildPrBody(loaded.issue.number, postValidation.summary, publish.reason),
+      body: buildPrBody({
+        issueNumber: loaded.issue.number,
+        validationSummary: comparison.summary,
+        reviewSummary,
+        publishReason: publish.reason,
+        triage,
+      }),
       draft: publish.decision === "draft_pr",
     });
     await recordPullRequest(this.db, { jobId: job.jobId, ...pr, draft: publish.decision === "draft_pr" });
@@ -281,12 +327,20 @@ export function buildCodexPrompt(input: {
   return sections.join("\n");
 }
 
-function buildPrBody(issueNumber: number, validationSummary: string, publishReason: string): string {
+function buildPrBody(input: {
+  issueNumber: number;
+  validationSummary: string;
+  reviewSummary: string;
+  publishReason: string;
+  triage: TriageResult;
+}): string {
   return [
-    `Fixes #${issueNumber}.`,
+    `Fixes #${input.issueNumber}.`,
     "",
     "## Argus Summary",
-    `- Validation: ${validationSummary}`,
-    `- Publish decision: ${publishReason}`,
+    `- Triage: ${input.triage.category} (${input.triage.source}) — ${input.triage.reasoning}`,
+    `- Validation: ${input.validationSummary}`,
+    `- Review: ${input.reviewSummary}`,
+    `- Publish decision: ${input.publishReason}`,
   ].join("\n");
 }
