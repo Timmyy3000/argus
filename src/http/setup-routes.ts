@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { desc } from "drizzle-orm";
 import { loadConfig } from "../config";
 import type { Db } from "../db/client";
-import { githubInstallations } from "../db/schema";
+import { githubInstallations, webhookDeliveries } from "../db/schema";
 import { getGitHubAppCredentials, saveGitHubAppCredentials } from "../github/credentials";
 
 /**
@@ -93,6 +93,15 @@ export async function registerSetupRoutes(app: FastifyInstance, deps: { db: Db; 
 
     // Straight into GitHub's repository picker so "connect" finishes in one motion.
     return reply.redirect(`https://github.com/apps/${conversion.slug}/installations/new`);
+  });
+
+  app.get("/api/deliveries", async () => {
+    const deliveries = await deps.db
+      .select()
+      .from(webhookDeliveries)
+      .orderBy(desc(webhookDeliveries.receivedAt))
+      .limit(25);
+    return { deliveries };
   });
 
   app.get("/api/connection", async (request) => {
