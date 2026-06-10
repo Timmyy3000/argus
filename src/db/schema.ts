@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -64,7 +65,7 @@ export const githubAppConfig = pgTable("github_app_config", {
 
 export const githubInstallations = pgTable("github_installations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  installationId: integer("installation_id").notNull().unique(),
+  installationId: bigint("installation_id", { mode: "number" }).notNull().unique(),
   accountLogin: text("account_login").notNull(),
   accountType: text("account_type").notNull(),
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
@@ -75,7 +76,7 @@ export const repositories = pgTable(
   "repositories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    githubId: integer("github_id").notNull().unique(),
+    githubId: bigint("github_id", { mode: "number" }).notNull().unique(),
     installationId: uuid("installation_id")
       .notNull()
       .references(() => githubInstallations.id, { onDelete: "cascade" }),
@@ -123,7 +124,7 @@ export const issues = pgTable(
     repositoryId: uuid("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
-    githubId: integer("github_id").notNull(),
+    githubId: bigint("github_id", { mode: "number" }).notNull(),
     number: integer("number").notNull(),
     title: text("title").notNull(),
     state: text("state").notNull(),
@@ -285,7 +286,7 @@ export const pullRequests = pgTable("pull_requests", {
     .notNull()
     .unique()
     .references(() => jobs.id, { onDelete: "cascade" }),
-  githubId: integer("github_id").notNull().unique(),
+  githubId: bigint("github_id", { mode: "number" }).notNull().unique(),
   number: integer("number").notNull(),
   url: text("url").notNull(),
   draft: boolean("draft").notNull().default(false),
