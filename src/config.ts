@@ -5,6 +5,8 @@ const envSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().url().default("postgres://resolver:resolver@localhost:55432/resolver"),
+  ARGUS_PUBLIC_URL: z.string().optional(),
+  ARGUS_DASHBOARD_TOKEN: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
