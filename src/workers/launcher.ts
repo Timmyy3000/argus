@@ -3,14 +3,19 @@ import {
   appendRedactedLogChunk,
   finishAttempt,
   getJobRuntimePolicy,
+  heartbeatAttempt,
   markExpiredAttempts,
+  requeueJobForRetry,
   startJobAttempt,
-  type TerminalJobStatus,
+  DEFAULT_LEASE_MINUTES,
 } from "../domain/attempts";
 import { notifyJobOutcome } from "../github/outcome";
-import { createBoss, ISSUE_FIX_QUEUE, type IssueFixJobPayload } from "../queue/boss";
+import { createBoss, enqueueIssueFix, ISSUE_FIX_QUEUE, type IssueFixJobPayload } from "../queue/boss";
 import { IssueFixRunner } from "./issue-fix-runner";
-import type { WorkerRunner } from "./types";
+import { decideAttemptOutcome } from "./retry";
+import type { WorkerRunner, WorkerRunResult } from "./types";
+
+const HEARTBEAT_INTERVAL_MS = 60_000;
 
 export async function startWorkerLauncher(runner?: WorkerRunner) {
   const { db, client } = createDb();
@@ -21,15 +26,37 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
 
   await boss.work<IssueFixJobPayload>(ISSUE_FIX_QUEUE, async ([job]) => {
     if (!job) return;
-    await markExpiredAttempts(db);
+
+    const expired = await markExpiredAttempts(db);
+    for (const outcome of expired) {
+      if (outcome.requeued) {
+        await enqueueIssueFix(
+          boss,
+          {
+            jobId: outcome.jobId,
+            repositoryId: outcome.repositoryId,
+            issueId: outcome.issueId,
+          },
+          { isRetry: true },
+        );
+      }
+    }
 
     const workerId = `worker-${process.pid}`;
     const policy = await getJobRuntimePolicy(db, job.data.jobId);
-    const attempt = await startJobAttempt(db, {
-      jobId: job.data.jobId,
-      workerId,
-      maxRuntimeMinutes: policy.maxRuntimeMinutes,
-    });
+
+    let attempt: Awaited<ReturnType<typeof startJobAttempt>>;
+    try {
+      attempt = await startJobAttempt(db, {
+        jobId: job.data.jobId,
+        workerId,
+        maxRuntimeMinutes: policy.maxRuntimeMinutes,
+      });
+    } catch (error) {
+      // The job was cancelled, completed, or claimed elsewhere between enqueue and lease.
+      console.warn(`Skipping job ${job.data.jobId}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
 
     await appendRedactedLogChunk(db, {
       jobId: job.data.jobId,
@@ -39,32 +66,55 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
       content: `Started attempt ${attempt.attemptNumber} with worker ${workerId}`,
     });
 
-    const result = await activeRunner.run({
-      jobId: job.data.jobId,
-      repositoryId: job.data.repositoryId,
-      issueId: job.data.issueId,
-      attemptId: attempt.id,
-      attemptToken: attempt.attemptToken,
-    });
+    const heartbeat = setInterval(() => {
+      void heartbeatAttempt(db, {
+        attemptToken: attempt.attemptToken,
+        extendMinutes: DEFAULT_LEASE_MINUTES,
+      }).catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
 
-    const jobStatus: TerminalJobStatus =
-      result.status === "completed"
-        ? "completed"
-        : result.status === "needs_human"
-          ? "needs_human"
-          : result.status;
+    let result: WorkerRunResult;
+    try {
+      result = await activeRunner.run({
+        jobId: job.data.jobId,
+        repositoryId: job.data.repositoryId,
+        issueId: job.data.issueId,
+        attemptId: attempt.id,
+        attemptToken: attempt.attemptToken,
+      });
+    } catch (error) {
+      result = {
+        status: "implementation_failed",
+        reason: `Worker crashed: ${error instanceof Error ? error.message : String(error)}`,
+        retryable: true,
+      };
+    } finally {
+      clearInterval(heartbeat);
+    }
 
     await appendRedactedLogChunk(db, {
       jobId: job.data.jobId,
       attemptId: attempt.id,
-      sequence: 2,
+      sequence: 1_000_000,
       stream: "system",
       content: result.reason,
     });
 
+    const outcome = decideAttemptOutcome({
+      result,
+      attemptNumber: attempt.attemptNumber,
+      maxAttempts: policy.maxAttempts,
+    });
+
+    if (outcome.action === "retry") {
+      await requeueJobForRetry(db, { attemptToken: attempt.attemptToken, reason: outcome.reason });
+      await enqueueIssueFix(boss, job.data, { isRetry: true, delaySeconds: 30 });
+      return;
+    }
+
     await finishAttempt(db, {
       attemptToken: attempt.attemptToken,
-      jobStatus,
+      jobStatus: outcome.jobStatus,
       reason: result.reason,
     });
 
@@ -74,7 +124,7 @@ export async function startWorkerLauncher(runner?: WorkerRunner) {
       await appendRedactedLogChunk(db, {
         jobId: job.data.jobId,
         attemptId: attempt.id,
-        sequence: 3,
+        sequence: 1_000_001,
         stream: "system",
         content: `GitHub outcome comment failed: ${error instanceof Error ? error.message : String(error)}`,
       });

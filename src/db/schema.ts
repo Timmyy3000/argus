@@ -228,6 +228,22 @@ export const discoveryResults = pgTable("discovery_results", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const triageDecision = pgEnum("triage_decision", ["attempt", "needs_more_info", "decline"]);
+
+export const triageResults = pgTable("triage_results", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  decision: triageDecision("decision").notNull(),
+  category: text("category").notNull(),
+  reasoning: text("reasoning").notNull(),
+  suspectFiles: jsonb("suspect_files").$type<string[]>().notNull().default([]),
+  plan: text("plan"),
+  source: text("source").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const validationResults = pgTable("validation_results", {
   id: uuid("id").primaryKey().defaultRandom(),
   jobId: uuid("job_id")

@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client";
 import {
   githubInstallations,
   issues,
+  jobAttempts,
   jobEvents,
   jobs,
   repositories,
@@ -193,6 +194,63 @@ export async function createIssueFixJob(
   });
 
   return { job, created: true };
+}
+
+export async function findActiveJob(
+  db: Db,
+  input: { repositoryId: string; issueId: string; triggerLabel: string },
+) {
+  return db.query.jobs.findFirst({
+    where: (table, { and: andOp, eq: eqOp, inArray: inArrayOp }) =>
+      andOp(
+        eqOp(table.repositoryId, input.repositoryId),
+        eqOp(table.issueId, input.issueId),
+        eqOp(table.triggerLabel, input.triggerLabel),
+        inArrayOp(table.status, ["received", "queued", "running"]),
+      ),
+  });
+}
+
+export async function cancelActiveJob(
+  db: Db,
+  input: {
+    repositoryId: string;
+    issueId: string;
+    triggerLabel: string;
+    reason: string;
+  },
+): Promise<{ jobId: string } | null> {
+  const active = await findActiveJob(db, input);
+  if (!active) return null;
+
+  const now = new Date();
+  await db
+    .update(jobs)
+    .set({
+      status: "cancelled",
+      statusReason: input.reason,
+      finishedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(jobs.id, active.id));
+
+  await db
+    .update(jobAttempts)
+    .set({
+      status: "cancelled",
+      finishedAt: now,
+      error: input.reason,
+      updatedAt: now,
+    })
+    .where(and(eq(jobAttempts.jobId, active.id), inArray(jobAttempts.status, ["queued", "running"])));
+
+  await db.insert(jobEvents).values({
+    jobId: active.id,
+    type: "job.cancelled",
+    message: input.reason,
+  });
+
+  return { jobId: active.id };
 }
 
 export async function rejectIssueFix(

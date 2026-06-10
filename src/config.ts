@@ -10,10 +10,20 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   ARGUS_WORKDIR: z.string().default(".argus-work"),
+  ARGUS_KEEP_WORKSPACE: z.coerce.boolean().default(false),
   ARGUS_ENABLE_CODEX: z.coerce.boolean().default(false),
+  ARGUS_ENABLE_TRIAGE: z.coerce.boolean().default(false),
+  ARGUS_ENABLE_LLM_REVIEW: z.coerce.boolean().default(false),
+  ARGUS_MAX_DIFF_BYTES: z.coerce.number().int().positive().default(200_000),
+  ARGUS_LLM_MODEL: z.string().default("gpt-5-mini"),
+  ARGUS_LLM_BASE_URL: z.string().default("https://api.openai.com/v1"),
   ARGUS_ENABLE_GIT_PUSH: z.coerce.boolean().default(false),
   ARGUS_SANDBOX_MODE: z.enum(["host", "docker"]).default("host"),
   ARGUS_SANDBOX_IMAGE: z.string().default("oven/bun:1"),
+  ARGUS_SANDBOX_NETWORK: z.enum(["none", "bridge"]).default("bridge"),
+  ARGUS_SANDBOX_MEMORY: z.string().default("2g"),
+  ARGUS_SANDBOX_CPUS: z.string().default("2"),
+  ARGUS_SANDBOX_PIDS: z.coerce.number().int().positive().default(512),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

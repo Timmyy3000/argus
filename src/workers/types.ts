@@ -7,8 +7,17 @@ export type WorkerJob = {
 };
 
 export type WorkerRunResult = {
-  status: "completed" | "needs_human" | "implementation_failed" | "publish_failed";
+  status:
+    | "completed"
+    | "needs_human"
+    | "discovery_failed"
+    | "implementation_failed"
+    | "validation_failed"
+    | "review_failed"
+    | "publish_failed";
   reason: string;
+  /** Transient failures (network, clone, push) may be retried up to the job's maxAttempts. */
+  retryable?: boolean;
 };
 
 export interface WorkerRunner {

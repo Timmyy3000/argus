@@ -1,6 +1,23 @@
 import type { Db } from "../db/client";
-import { discoveryResults, pullRequests, reviewResults, validationResults } from "../db/schema";
+import { discoveryResults, pullRequests, reviewResults, triageResults, validationResults } from "../db/schema";
 import type { DiscoveryResult } from "../discovery/types";
+import type { TriageResult } from "../triage/types";
+
+export async function recordTriageResult(db: Db, jobId: string, result: TriageResult) {
+  const [row] = await db
+    .insert(triageResults)
+    .values({
+      jobId,
+      decision: result.decision,
+      category: result.category,
+      reasoning: result.reasoning,
+      suspectFiles: result.suspectFiles,
+      plan: result.plan,
+      source: result.source,
+    })
+    .returning();
+  return row;
+}
 
 export async function recordDiscoveryResult(db: Db, jobId: string, result: DiscoveryResult) {
   const [row] = await db

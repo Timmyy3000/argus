@@ -9,6 +9,7 @@ import {
   jobs,
   pullRequests,
   reviewResults,
+  triageResults,
   validationResults,
 } from "../db/schema";
 import { presentJobDetail, presentJobListItem } from "./job-presenter";
@@ -42,7 +43,7 @@ export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db 
 
     if (!job) return reply.code(404).send({ error: "Job not found" });
 
-    const [attempts, events, logs, discovery, validations, reviews, pullRequest] = await Promise.all([
+    const [attempts, events, logs, discovery, triage, validations, reviews, pullRequest] = await Promise.all([
       deps.db.query.jobAttempts.findMany({
         where: eq(jobAttempts.jobId, job.id),
         orderBy: [desc(jobAttempts.attemptNumber)],
@@ -62,6 +63,12 @@ export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db 
         .limit(5),
       deps.db
         .select()
+        .from(triageResults)
+        .where(eq(triageResults.jobId, job.id))
+        .orderBy(desc(triageResults.createdAt))
+        .limit(5),
+      deps.db
+        .select()
         .from(validationResults)
         .where(eq(validationResults.jobId, job.id))
         .orderBy(desc(validationResults.createdAt))
@@ -75,6 +82,16 @@ export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db 
       deps.db.query.pullRequests.findFirst({ where: eq(pullRequests.jobId, job.id) }),
     ]);
 
-    return presentJobDetail({ job, attempts, events, logs, discovery, validations, reviews, pullRequest: pullRequest ?? null });
+    return presentJobDetail({
+      job,
+      attempts,
+      events,
+      logs,
+      discovery,
+      triage,
+      validations,
+      reviews,
+      pullRequest: pullRequest ?? null,
+    });
   });
 }

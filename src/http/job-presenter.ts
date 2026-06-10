@@ -40,6 +40,7 @@ type JobDetailInput = {
     createdAt: Date;
   }>;
   discovery: Array<Record<string, unknown>>;
+  triage?: Array<Record<string, unknown>>;
   validations: Array<Record<string, unknown>>;
   reviews: Array<Record<string, unknown>>;
   pullRequest?: { number: number; url: string; draft: boolean } | null;
@@ -80,6 +81,7 @@ export function presentJobDetail(input: JobDetailInput) {
     events: input.events,
     logs: input.logs,
     discovery: input.discovery,
+    triage: input.triage ?? [],
     validations: input.validations,
     reviews: input.reviews,
   };
