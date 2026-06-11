@@ -8,6 +8,7 @@ import { createDb } from "./db/client";
 import { createBoss } from "./queue/boss";
 import { registerGitHubRoutes } from "./http/github-routes";
 import { registerSetupRoutes } from "./http/setup-routes";
+import { registerStandardsRoutes } from "./http/standards-routes";
 import { registerStatusRoutes } from "./http/status-routes";
 
 /** Paths that must stay reachable without the dashboard token. */
@@ -24,7 +25,11 @@ export function isProtectedPath(url: string): boolean {
  * browsers never send to the server, so it stays out of access logs. The web
  * app stores it and scrubs it from the address bar on load.
  */
-export function formatAccessUrl(config: { ARGUS_PUBLIC_URL?: string; ARGUS_DASHBOARD_TOKEN?: string; PORT: number }): string | undefined {
+export function formatAccessUrl(config: {
+  ARGUS_PUBLIC_URL?: string | undefined;
+  ARGUS_DASHBOARD_TOKEN?: string | undefined;
+  PORT: number;
+}): string | undefined {
   if (!config.ARGUS_DASHBOARD_TOKEN) return undefined;
   const base = (config.ARGUS_PUBLIC_URL ?? `http://localhost:${config.PORT}`).replace(/\/$/, "");
   return `Dashboard ready: ${base}/#token=${encodeURIComponent(config.ARGUS_DASHBOARD_TOKEN)}`;
@@ -62,6 +67,7 @@ export async function buildServer() {
   await registerStatusRoutes(app, { db });
   await registerGitHubRoutes(app, { db, boss });
   await registerSetupRoutes(app, { db });
+  await registerStandardsRoutes(app, { db });
 
   app.addHook("onClose", async () => {
     await boss.stop();

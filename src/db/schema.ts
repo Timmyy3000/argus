@@ -242,6 +242,27 @@ export const discoveryResults = pgTable("discovery_results", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const standardsKind = pgEnum("standards_kind", ["agents", "skill"]);
+
+/**
+ * Operator-authored standards (an AGENTS.md plus named skills) managed from
+ * the dashboard and materialized into every fix workspace, so the agent works
+ * the way the operator's team works without forking the target repos.
+ */
+export const standardsFiles = pgTable(
+  "standards_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: standardsKind("kind").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    content: text("content").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex("standards_files_kind_name_idx").on(table.kind, table.name)],
+);
+
 export const triageDecision = pgEnum("triage_decision", ["attempt", "needs_more_info", "decline"]);
 
 export const triageResults = pgTable("triage_results", {
