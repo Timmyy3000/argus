@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, getToken, setToken } from "./api";
+import { api, ApiError, consumeTokenFromUrl, getToken, setToken } from "./api";
+
+consumeTokenFromUrl();
 import type { Connection, JobSummary } from "./types";
 import { Board } from "./components/Board";
 import { ConnectHero } from "./components/ConnectHero";

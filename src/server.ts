@@ -19,6 +19,17 @@ export function isProtectedPath(url: string): boolean {
   return path.startsWith("/jobs") || path.startsWith("/api/") || path === "/setup/github/manifest";
 }
 
+/**
+ * One-click dashboard access: the token rides in the hash fragment, which
+ * browsers never send to the server, so it stays out of access logs. The web
+ * app stores it and scrubs it from the address bar on load.
+ */
+export function formatAccessUrl(config: { ARGUS_PUBLIC_URL?: string; ARGUS_DASHBOARD_TOKEN?: string; PORT: number }): string | undefined {
+  if (!config.ARGUS_DASHBOARD_TOKEN) return undefined;
+  const base = (config.ARGUS_PUBLIC_URL ?? `http://localhost:${config.PORT}`).replace(/\/$/, "");
+  return `Dashboard ready: ${base}/#token=${encodeURIComponent(config.ARGUS_DASHBOARD_TOKEN)}`;
+}
+
 export async function buildServer() {
   const config = loadConfig();
   const { db, client } = createDb(config.DATABASE_URL);
@@ -64,4 +75,5 @@ if (import.meta.main) {
   const config = loadConfig();
   const app = await buildServer();
   await app.listen({ host: config.HOST, port: config.PORT });
+  app.log.info(formatAccessUrl(config) ?? "Dashboard access URL unavailable (set ARGUS_DASHBOARD_TOKEN)");
 }

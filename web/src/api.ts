@@ -2,6 +2,19 @@ import type { Connection, JobDetail, JobSummary, ManifestResponse } from "./type
 
 const TOKEN_KEY = "argus.dashboard.token";
 
+/**
+ * Magic-link sign-in: the server prints an access URL like
+ * https://host/#token=... at startup. The token rides in the hash fragment so
+ * it never appears in proxy or access logs, gets stored once, and is scrubbed
+ * from the address bar (and history) immediately.
+ */
+export function consumeTokenFromUrl(): void {
+  const match = /(?:^|[#&])token=([^&]+)/.exec(window.location.hash);
+  if (!match?.[1]) return;
+  setToken(decodeURIComponent(match[1]));
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
 export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? "";
 }
