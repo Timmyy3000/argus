@@ -1,4 +1,4 @@
-import type { Connection, JobDetail, JobSummary, ManifestResponse } from "./types";
+import type { Connection, JobDetail, JobSummary, ManifestResponse, SkillInput, Standards } from "./types";
 
 const TOKEN_KEY = "argus.dashboard.token";
 
@@ -32,12 +32,23 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const token = getToken();
   const response = await fetch(path, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    method: init?.method ?? "GET",
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(init?.body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
-  if (!response.ok) throw new ApiError(`${path} returned ${response.status}`, response.status);
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((data: { error?: string }) => data.error)
+      .catch(() => undefined);
+    throw new ApiError(detail ?? `${path} returned ${response.status}`, response.status);
+  }
   return (await response.json()) as T;
 }
 
@@ -46,6 +57,12 @@ export const api = {
   job: (id: string) => request<JobDetail>(`/jobs/${id}`),
   connection: () => request<Connection>("/api/connection"),
   manifest: () => request<ManifestResponse>("/setup/github/manifest"),
+  standards: () => request<Standards>("/api/standards"),
+  saveAgentsMd: (content: string) => request<{ ok: true }>("/api/standards/agents", { method: "PUT", body: { content } }),
+  createSkill: (skill: SkillInput) => request<{ id: string }>("/api/standards/skills", { method: "POST", body: skill }),
+  updateSkill: (id: string, skill: Partial<SkillInput>) =>
+    request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "PUT", body: skill }),
+  deleteSkill: (id: string) => request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "DELETE" }),
 };
 
 /**

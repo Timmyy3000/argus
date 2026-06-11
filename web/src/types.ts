@@ -52,6 +52,27 @@ export type Connection = {
   }>;
 };
 
+export type Skill = {
+  id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  enabled: boolean;
+  updatedAt: string;
+};
+
+export type SkillInput = {
+  name: string;
+  description?: string;
+  content: string;
+  enabled?: boolean;
+};
+
+export type Standards = {
+  agentsMd: string;
+  skills: Skill[];
+};
+
 export type ManifestResponse = {
   postUrl: string;
   manifest: Record<string, unknown>;

@@ -8,6 +8,7 @@ import { ConnectHero } from "./components/ConnectHero";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { Eye } from "./components/Eye";
 import { JobDrawer } from "./components/JobDrawer";
+import { StandardsPanel } from "./components/StandardsPanel";
 
 const POLL_MS = 5000;
 
@@ -97,7 +98,10 @@ export function App() {
       ) : (
         <main className="layout">
           <Board jobs={jobs} onSelect={setSelectedJobId} />
-          {connection && <ConnectionPanel connection={connection} />}
+          <div className="side-column">
+            {connection && <ConnectionPanel connection={connection} />}
+            <StandardsPanel />
+          </div>
         </main>
       )}
 
