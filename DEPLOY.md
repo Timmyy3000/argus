@@ -73,14 +73,19 @@ If you have a domain, put a reverse proxy (Traefik/Caddy/nginx) with TLS in fron
 
 ## Step 4 — Codex auth (subscription, not API key)
 
-The worker runs `codex exec` for fixes. To use a ChatGPT/Codex **subscription** (no per-token billing):
+The worker runs `codex exec` for fixes, billed to a ChatGPT/Codex **subscription** (no per-token charges).
 
-1. On any machine, install the Codex CLI and sign in: `codex login` (browser flow). This writes `~/.codex/auth.json`.
-2. Copy that file to the deploy host and mount it into the worker at `/root/.codex/auth.json`. In `compose.deploy.yml` the worker already mounts a `codex` directory — place `auth.json` there. The mount must be **writable** (Codex rotates its tokens).
+**Easiest — from the console.** Connections → **Connect Codex**. The console shows a one-time code and a verification URL; open the URL on any device, sign in to ChatGPT, enter the code. Done — the credential is written to the shared codex mount and the worker uses it on its next job.
 
-**Checkpoint:** `docker compose -f compose.deploy.yml exec worker codex login status` reports logged in.
+> On ChatGPT **Business/Enterprise** workspaces an admin must first enable **"Allow device code login"** (Workspace Settings → Permissions) or this flow fails. Personal Plus/Pro accounts enable it in their own security settings.
 
-(Alternative: set `OPENAI_API_KEY` in `.env` for API-key billing. Subscription auth takes precedence in practice — leave the key empty if you don't want API charges.)
+**Alternatives** if device login is unavailable:
+
+- *SSH port forwarding:* `ssh -L 1455:localhost:1455 user@host`, then run `codex login` on the host inside the codex mount's HOME — your local browser completes the callback flow.
+- *Copy credentials:* run `codex login` on any machine with a browser, then copy `~/.codex/auth.json` into the codex mount directory on the deploy host. The mount must be **writable** (Codex rotates its tokens).
+- *API key:* set `OPENAI_API_KEY` in `.env` — works everywhere but bills at API rates. Leave it empty if you don't want API charges.
+
+**Checkpoint:** the Codex card on the Connections screen shows **connected** (or `docker compose -f compose.deploy.yml exec worker codex login status`).
 
 ## Step 5 — Open the gates, one at a time
 

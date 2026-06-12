@@ -74,6 +74,17 @@ export type Standards = {
   skills: Skill[];
 };
 
+export type CodexLogin =
+  | { state: "idle" }
+  | { state: "pending"; url: string | null; code: string | null; raw: string }
+  | { state: "success" }
+  | { state: "error"; message: string };
+
+export type CodexStatus = {
+  auth: { connected: boolean; account: string | null };
+  login: CodexLogin;
+};
+
 export type ManifestResponse = {
   postUrl: string;
   manifest: Record<string, unknown>;

@@ -1,4 +1,4 @@
-import type { Connection, JobDetail, JobSummary, ManifestResponse, SkillInput, Standards } from "./types";
+import type { CodexStatus, Connection, JobDetail, JobSummary, ManifestResponse, SkillInput, Standards } from "./types";
 
 const TOKEN_KEY = "argus.dashboard.token";
 
@@ -63,6 +63,9 @@ export const api = {
   updateSkill: (id: string, skill: Partial<SkillInput>) =>
     request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "PUT", body: skill }),
   deleteSkill: (id: string) => request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "DELETE" }),
+  codexStatus: () => request<CodexStatus>("/api/codex/status"),
+  codexConnect: () => request<CodexStatus>("/api/codex/connect", { method: "POST", body: {} }),
+  codexCancel: () => request<CodexStatus>("/api/codex/cancel", { method: "POST", body: {} }),
 };
 
 /**

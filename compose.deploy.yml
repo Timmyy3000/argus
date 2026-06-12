@@ -53,6 +53,11 @@ services:
       ARGUS_SANDBOX_NETWORK: ${ARGUS_SANDBOX_NETWORK:-bridge}
     ports:
       - "${PORT:-3000}:3000"
+    volumes:
+      # Same codex credential mount as the worker: the console's "Connect
+      # Codex" device-auth flow runs in the api container and writes
+      # auth.json here; the worker reads it on its next job.
+      - ../files/codex:/root/.codex
     command: ["bun", "run", "start"]
     depends_on:
       postgres:
