@@ -3,6 +3,7 @@ export type JobSummary = {
   status: string;
   repository: string;
   issueNumber: number;
+  issueTitle: string;
   triggerLabel: string;
   requestedBy: string;
   createdAt: string;
