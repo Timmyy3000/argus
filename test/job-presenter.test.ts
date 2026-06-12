@@ -9,7 +9,7 @@ describe("presentJobDetail", () => {
         id: "job-1",
         status: "needs_human",
         repository: { fullName: "owner/repo" },
-        issue: { number: 42 },
+        issue: { number: 42, title: "Fix the thing" },
         triggerLabel: "agent:fix",
         requestedBy: "octocat",
         statusReason: "publish disabled",

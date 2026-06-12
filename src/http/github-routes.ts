@@ -1,14 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import type PgBoss from "pg-boss";
-import { loadConfig } from "../config";
 import type { Db } from "../db/client";
+import { getGitHubAppCredentials } from "../github/credentials";
 import { handleGitHubWebhook, verifyWebhookSignature } from "../github/webhook";
 
 export async function registerGitHubRoutes(app: FastifyInstance, deps: { db: Db; boss?: PgBoss }) {
   app.post("/webhooks/github", async (request, reply) => {
-    const config = loadConfig();
-    if (!config.GITHUB_WEBHOOK_SECRET) {
-      return reply.code(500).send({ error: "GitHub webhook secret is not configured" });
+    const credentials = await getGitHubAppCredentials(deps.db);
+    if (!credentials) {
+      return reply.code(500).send({ error: "GitHub App is not configured" });
     }
 
     const deliveryId = headerValue(request.headers["x-github-delivery"]);
@@ -25,7 +25,7 @@ export async function registerGitHubRoutes(app: FastifyInstance, deps: { db: Db;
     }
 
     const valid = await verifyWebhookSignature({
-      secret: config.GITHUB_WEBHOOK_SECRET,
+      secret: credentials.webhookSecret,
       body: rawBody.toString("utf8"),
       signature,
     });

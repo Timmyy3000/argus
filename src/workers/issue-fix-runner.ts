@@ -18,6 +18,7 @@ import { decidePublish } from "../publish/decision";
 import { reviewDiffWithLlm } from "../review/llm-review";
 import { parseNameStatus, runMechanicalChecks } from "../review/mechanical";
 import { createCommandExecutor } from "../sandbox/executor";
+import { loadStandardsBundle, materializeStandards, renderSkillIndex } from "../standards/standards";
 import { runCommand } from "../system/command";
 import { triageIssue } from "../triage/triage";
 import type { TriageResult } from "../triage/types";
@@ -86,6 +87,14 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "implementation_failed", reason: `branch checkout failed: ${checkout.stderr || checkout.stdout}` };
     }
 
+    // Fresh clones have no committer identity; without one, git commit fails
+    // and an empty branch gets pushed.
+    await runCommand("git", ["config", "user.name", "argus[bot]"], { cwd: repoDir, timeoutMs: 30_000 });
+    await runCommand("git", ["config", "user.email", "argus[bot]@users.noreply.github.com"], {
+      cwd: repoDir,
+      timeoutMs: 30_000,
+    });
+
     const executor = createCommandExecutor({
       mode: config.ARGUS_SANDBOX_MODE,
       image: config.ARGUS_SANDBOX_IMAGE,
@@ -145,23 +154,44 @@ export class IssueFixRunner implements WorkerRunner {
       };
     }
 
+    // Operator standards (dashboard-managed AGENTS.md + skills) land in the
+    // workspace right before the agent runs, git-excluded so they never ship.
+    const standards = await materializeStandards(await loadStandardsBundle(this.db), repoDir);
+    if (standards.agentsMdWritten || standards.skillIndex.length > 0) {
+      await logger.log(
+        "system",
+        `Standards applied: AGENTS.md ${standards.agentsMdWritten ? "yes" : "no"}, skills: ${standards.skillIndex.map((s) => s.name).join(", ") || "none"}`,
+      );
+    }
+
     const prompt = buildCodexPrompt({
       issueNumber: loaded.issue.number,
       issueTitle: loaded.issue.title,
       issueBody: loaded.issue.body ?? "",
       discovery,
       triage,
+      skillIndex: standards.skillIndex,
     });
-    const codex = await executor.run("codex", ["exec", prompt, "--skip-git-repo-check"], {
+    // The worker container (or docker sandbox) is the isolation boundary, and
+    // the review/publish gates guard the output. Codex's built-in bubblewrap
+    // sandbox cannot create user namespaces inside a container, so disable it.
+    const codex = await executor.run(
+      "codex",
+      ["exec", "--sandbox", "danger-full-access", "--skip-git-repo-check", prompt],
+      {
       cwd: repoDir,
       timeoutMs: policy.maxRuntimeMinutes * 60_000,
       ...(config.OPENAI_API_KEY ? { env: { OPENAI_API_KEY: config.OPENAI_API_KEY } } : {}),
-    });
+      },
+    );
     await logger.logCommand("codex exec", codex);
     if (codex.exitCode !== 0) {
       return { status: "implementation_failed", reason: `Codex failed: ${codex.stderr || codex.stdout}` };
     }
 
+    for (const file of standards.restoreBeforeStaging) {
+      await runCommand("git", ["restore", "--", file], { cwd: repoDir, timeoutMs: 30_000 });
+    }
     await runCommand("git", ["add", "."], { cwd: repoDir, timeoutMs: 60_000 });
     const stagedDiff = await runCommand("git", ["diff", "--cached"], { cwd: repoDir, timeoutMs: 60_000 });
     const stagedNameStatus = await runCommand("git", ["diff", "--cached", "--name-status"], {
@@ -170,7 +200,16 @@ export class IssueFixRunner implements WorkerRunner {
     });
     const hasDiff = stagedDiff.stdout.trim().length > 0;
     if (hasDiff) {
-      await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], { cwd: repoDir, timeoutMs: 60_000 });
+      const commit = await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], {
+        cwd: repoDir,
+        timeoutMs: 60_000,
+      });
+      if (commit.exitCode !== 0) {
+        return {
+          status: "implementation_failed",
+          reason: `git commit failed: ${commit.stderr || commit.stdout}`,
+        };
+      }
     }
 
     const postValidation = await runValidationCommands(repoDir, discovery.commands, 10 * 60_000, executor);
@@ -308,6 +347,7 @@ export function buildCodexPrompt(input: {
   issueBody: string;
   discovery: { commands: Record<string, string | null | undefined> };
   triage?: Pick<TriageResult, "suspectFiles" | "plan" | "reasoning">;
+  skillIndex?: Array<{ path: string; name: string; description: string | null }>;
 }): string {
   const sections = [
     `Fix GitHub issue #${input.issueNumber}: ${input.issueTitle}`,
@@ -320,6 +360,11 @@ export function buildCodexPrompt(input: {
   }
   if (input.triage && input.triage.suspectFiles.length > 0) {
     sections.push("", "Files most likely involved:", input.triage.suspectFiles.map((file) => `- ${file}`).join("\n"));
+  }
+
+  const skillSection = renderSkillIndex(input.skillIndex ?? []);
+  if (skillSection) {
+    sections.push("", skillSection);
   }
 
   sections.push(

@@ -2,7 +2,7 @@ type JobListInput = {
   id: string;
   status: string;
   repository: { fullName: string };
-  issue: { number: number };
+  issue: { number: number; title: string };
   triggerLabel: string;
   requestedBy: string;
   createdAt: Date;
@@ -52,6 +52,7 @@ export function presentJobListItem(job: JobListInput) {
     status: job.status,
     repository: job.repository.fullName,
     issueNumber: job.issue.number,
+    issueTitle: job.issue.title,
     triggerLabel: job.triggerLabel,
     requestedBy: job.requestedBy,
     createdAt: job.createdAt,

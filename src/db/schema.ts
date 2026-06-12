@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -49,9 +50,22 @@ const timestamps = {
     .$onUpdate(() => new Date()),
 };
 
+export const githubAppConfig = pgTable("github_app_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: text("app_id").notNull(),
+  privateKey: text("private_key").notNull(),
+  webhookSecret: text("webhook_secret").notNull(),
+  slug: text("slug"),
+  appName: text("app_name"),
+  htmlUrl: text("html_url"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  ...timestamps,
+});
+
 export const githubInstallations = pgTable("github_installations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  installationId: integer("installation_id").notNull().unique(),
+  installationId: bigint("installation_id", { mode: "number" }).notNull().unique(),
   accountLogin: text("account_login").notNull(),
   accountType: text("account_type").notNull(),
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
@@ -62,7 +76,7 @@ export const repositories = pgTable(
   "repositories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    githubId: integer("github_id").notNull().unique(),
+    githubId: bigint("github_id", { mode: "number" }).notNull().unique(),
     installationId: uuid("installation_id")
       .notNull()
       .references(() => githubInstallations.id, { onDelete: "cascade" }),
@@ -110,7 +124,7 @@ export const issues = pgTable(
     repositoryId: uuid("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
-    githubId: integer("github_id").notNull(),
+    githubId: bigint("github_id", { mode: "number" }).notNull(),
     number: integer("number").notNull(),
     title: text("title").notNull(),
     state: text("state").notNull(),
@@ -228,6 +242,27 @@ export const discoveryResults = pgTable("discovery_results", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const standardsKind = pgEnum("standards_kind", ["agents", "skill"]);
+
+/**
+ * Operator-authored standards (an AGENTS.md plus named skills) managed from
+ * the dashboard and materialized into every fix workspace, so the agent works
+ * the way the operator's team works without forking the target repos.
+ */
+export const standardsFiles = pgTable(
+  "standards_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: standardsKind("kind").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    content: text("content").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex("standards_files_kind_name_idx").on(table.kind, table.name)],
+);
+
 export const triageDecision = pgEnum("triage_decision", ["attempt", "needs_more_info", "decline"]);
 
 export const triageResults = pgTable("triage_results", {
@@ -272,7 +307,7 @@ export const pullRequests = pgTable("pull_requests", {
     .notNull()
     .unique()
     .references(() => jobs.id, { onDelete: "cascade" }),
-  githubId: integer("github_id").notNull().unique(),
+  githubId: bigint("github_id", { mode: "number" }).notNull().unique(),
   number: integer("number").notNull(),
   url: text("url").notNull(),
   draft: boolean("draft").notNull().default(false),

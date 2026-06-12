@@ -11,7 +11,7 @@ export type MechanicalCheckResult = {
 
 export const DEFAULT_MAX_DIFF_BYTES = 200_000;
 
-const FORBIDDEN_PATH_PREFIXES = [".github/workflows/", ".agents/", ".git/"];
+const FORBIDDEN_PATH_PREFIXES = [".github/workflows/", ".agents/", ".argus/", ".git/"];
 
 const SECRET_ADDITION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /AKIA[0-9A-Z]{16}/, label: "AWS access key id" },
