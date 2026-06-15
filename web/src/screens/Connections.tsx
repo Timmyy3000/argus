@@ -113,8 +113,13 @@ function CodexCard() {
                 to ChatGPT, and enter the code. This page updates by itself.
               </p>
             )}
-            {!login.code && !login.url && login.raw && (
-              <pre style={{ fontSize: 11, color: "var(--ink-2)", whiteSpace: "pre-wrap", background: "var(--inset)", borderRadius: 8, padding: 12 }}>{login.raw}</pre>
+            {!login.code && login.raw && (
+              <>
+                <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                  Couldn't read a code automatically — copy it from Codex's output below:
+                </p>
+                <pre style={{ fontSize: 11, color: "var(--ink-2)", whiteSpace: "pre-wrap", background: "var(--inset)", borderRadius: 8, padding: 12, marginBottom: 14 }}>{login.raw}</pre>
+              </>
             )}
             <div className="reason-banner a" style={{ marginBottom: 14 }}>
               <span className="rb-ic"><Icon name="alert" size={16} /></span>

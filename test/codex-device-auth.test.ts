@@ -24,6 +24,19 @@ describe("parseDevicePrompt", () => {
   test("returns nulls on partial output", () => {
     expect(parseDevicePrompt("Starting device auth…")).toEqual({ url: null, code: null });
   });
+
+  test("strips ANSI color codes around the url and code (real codex v0.139 output)", () => {
+    const E = "\x1b";
+    const out =
+      `1. Open this link in your browser and sign in to your account\n` +
+      `   ${E}[94mhttps://auth.openai.com/codex/device${E}[0m\n` +
+      `2. Enter this one-time code ${E}[90m(expires in 15 minutes)${E}[0m\n` +
+      `   ${E}[94mO6AZ-U1D2T${E}[0m\n`;
+    expect(parseDevicePrompt(out)).toEqual({
+      url: "https://auth.openai.com/codex/device",
+      code: "O6AZ-U1D2T",
+    });
+  });
 });
 
 type FakeChild = EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: (sig?: string) => void; killed: boolean };

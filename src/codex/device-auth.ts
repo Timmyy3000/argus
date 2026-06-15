@@ -21,15 +21,27 @@ export type ParsedPrompt = { url: string | null; code: string | null };
 
 const LOGIN_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * Codex colorizes its output — the URL and the one-time code arrive wrapped in
+ * SGR sequences like `ESC[94m…ESC[0m`. Strip them: the ESC byte is
+ * non-whitespace, so an unstripped `ESC[94m` glues the code token to a
+ * trailing `m` and the word-boundary match (\bCODE\b) never fires.
+ */
+export function stripAnsi(input: string): string {
+  // eslint-disable-next-line no-control-regex
+  return input.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b/g, "");
+}
+
 /** Tolerant extraction — exact wording varies across codex versions. */
 export function parseDevicePrompt(output: string): ParsedPrompt {
-  const urlMatch = output.match(/https:\/\/\S+/);
-  // The one-time code is a short grouped token like "BDSF-HKLM" or "ABCD-1234",
+  const clean = stripAnsi(output);
+  const urlMatch = clean.match(/https:\/\/\S+/);
+  // The one-time code is a short grouped token like "BDSF-HKLM" or "O6AZ-U1D2T",
   // standing alone or after a label. Avoid matching UUID fragments inside URLs.
-  const withoutUrls = output.replace(/https:\/\/\S+/g, " ");
+  const withoutUrls = clean.replace(/https:\/\/\S+/g, " ");
   const codeMatch =
-    withoutUrls.match(/code[^A-Z0-9]*([A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})+)/i) ??
-    withoutUrls.match(/\b([A-Z0-9]{4,8}-[A-Z0-9]{4,8})\b/);
+    withoutUrls.match(/code\b[^A-Za-z0-9]*(?:\([^)]*\)[^A-Za-z0-9]*)?([A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})+)/i) ??
+    withoutUrls.match(/\b([A-Z0-9]{4,8}-[A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})*)\b/);
   return {
     url: urlMatch ? urlMatch[0].replace(/[).,]+$/, "") : null,
     code: codeMatch ? codeMatch[1] ?? null : null,
@@ -88,7 +100,7 @@ export class DeviceAuthManager {
       raw += chunk.toString();
       if (this.current.state !== "pending") return;
       const parsed = parseDevicePrompt(raw);
-      this.current = { state: "pending", url: parsed.url, code: parsed.code, raw: raw.slice(0, 4000) };
+      this.current = { state: "pending", url: parsed.url, code: parsed.code, raw: stripAnsi(raw).slice(0, 4000) };
     };
     child.stdout?.on("data", onChunk);
     child.stderr?.on("data", onChunk);
@@ -101,7 +113,7 @@ export class DeviceAuthManager {
       this.settle(
         exitCode === 0
           ? { state: "success" }
-          : { state: "error", message: raw.trim().split("\n").slice(-3).join("\n") || `codex login exited with ${exitCode}` },
+          : { state: "error", message: stripAnsi(raw).trim().split("\n").slice(-3).join("\n") || `codex login exited with ${exitCode}` },
       );
     });
 
