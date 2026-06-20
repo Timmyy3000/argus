@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
+import packageJson from "../../package.json" with { type: "json" };
 import type { Db } from "../db/client";
 import {
   discoveryResults,
@@ -15,7 +16,7 @@ import {
 import { presentJobDetail, presentJobListItem } from "./job-presenter";
 
 export async function registerStatusRoutes(app: FastifyInstance, deps: { db: Db }) {
-  app.get("/health", async () => ({ ok: true }));
+  app.get("/health", async () => ({ ok: true, version: packageJson.version }));
 
   app.get("/jobs", async () => {
     const rows = await deps.db.query.jobs.findMany({
