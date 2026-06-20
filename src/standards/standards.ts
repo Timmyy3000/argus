@@ -6,6 +6,8 @@ import { standardsFiles } from "../db/schema";
 
 export type StandardsBundle = {
   agentsMd: string | null;
+  reviewMd: string | null;
+  publishMd: string | null;
   skills: Array<{ name: string; description: string | null; content: string }>;
 };
 
@@ -42,6 +44,8 @@ export async function loadStandardsBundle(db: Db): Promise<StandardsBundle> {
     .orderBy(asc(standardsFiles.name));
   return {
     agentsMd: rows.find((row) => row.kind === "agents")?.content ?? null,
+    reviewMd: rows.find((row) => row.kind === "review")?.content ?? null,
+    publishMd: rows.find((row) => row.kind === "publish")?.content ?? null,
     skills: rows
       .filter((row) => row.kind === "skill")
       .map((row) => ({ name: row.name, description: row.description, content: row.content })),
@@ -55,7 +59,10 @@ export async function loadStandardsBundle(db: Db): Promise<StandardsBundle> {
  * .git/info/exclude, which—unlike .gitignore—is not itself a working-tree
  * file, so nothing about the standards can leak into the PR diff.
  */
-export async function materializeStandards(bundle: StandardsBundle, repoDir: string): Promise<MaterializedStandards> {
+export async function materializeStandards(
+  bundle: Pick<StandardsBundle, "agentsMd" | "skills">,
+  repoDir: string,
+): Promise<MaterializedStandards> {
   const excluded: string[] = [];
   const restoreBeforeStaging: string[] = [];
   let agentsMdWritten = false;

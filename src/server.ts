@@ -9,6 +9,7 @@ import { createBoss } from "./queue/boss";
 import { registerGitHubRoutes } from "./http/github-routes";
 import { registerSetupRoutes } from "./http/setup-routes";
 import { registerStandardsRoutes } from "./http/standards-routes";
+import { registerSettingsRoutes } from "./http/settings-routes";
 import { registerCodexRoutes } from "./http/codex-routes";
 import { registerStatusRoutes } from "./http/status-routes";
 
@@ -69,6 +70,7 @@ export async function buildServer() {
   await registerGitHubRoutes(app, { db, boss });
   await registerSetupRoutes(app, { db });
   await registerStandardsRoutes(app, { db });
+  await registerSettingsRoutes(app, { db });
   await registerCodexRoutes(app);
 
   app.addHook("onClose", async () => {

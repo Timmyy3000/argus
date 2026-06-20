@@ -13,15 +13,26 @@ const skillBody = z.object({
   enabled: z.boolean().optional(),
 });
 
-const agentsBody = z.object({
+const docBody = z.object({
   content: z.string().max(MAX_CONTENT_BYTES),
 });
+
+// The three well-known stage documents. Each is a singleton keyed by kind.
+const STAGE_DOCS = [
+  { kind: "agents" as const, file: "agents", name: "AGENTS.md" },
+  { kind: "review" as const, file: "review", name: "review.md" },
+  { kind: "publish" as const, file: "publish", name: "publish.md" },
+];
 
 export async function registerStandardsRoutes(app: FastifyInstance, deps: { db: Db }) {
   app.get("/api/standards", async () => {
     const rows = await deps.db.select().from(standardsFiles).orderBy(asc(standardsFiles.name));
+    const content = (kind: (typeof STAGE_DOCS)[number]["kind"]) =>
+      rows.find((row) => row.kind === kind)?.content ?? "";
     return {
-      agentsMd: rows.find((row) => row.kind === "agents")?.content ?? "",
+      agentsMd: content("agents"),
+      reviewMd: content("review"),
+      publishMd: content("publish"),
       skills: rows
         .filter((row) => row.kind === "skill")
         .map((row) => ({
@@ -35,23 +46,23 @@ export async function registerStandardsRoutes(app: FastifyInstance, deps: { db: 
     };
   });
 
-  app.put("/api/standards/agents", async (request, reply) => {
-    const parsed = agentsBody.safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid body" });
+  for (const doc of STAGE_DOCS) {
+    app.put(`/api/standards/${doc.file}`, async (request, reply) => {
+      const parsed = docBody.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid body" });
 
-    const existing = await deps.db.query.standardsFiles.findFirst({ where: eq(standardsFiles.kind, "agents") });
-    if (existing) {
-      await deps.db
-        .update(standardsFiles)
-        .set({ content: parsed.data.content, updatedAt: new Date() })
-        .where(eq(standardsFiles.id, existing.id));
-    } else {
-      await deps.db
-        .insert(standardsFiles)
-        .values({ kind: "agents", name: "AGENTS.md", content: parsed.data.content });
-    }
-    return { ok: true };
-  });
+      const existing = await deps.db.query.standardsFiles.findFirst({ where: eq(standardsFiles.kind, doc.kind) });
+      if (existing) {
+        await deps.db
+          .update(standardsFiles)
+          .set({ content: parsed.data.content, updatedAt: new Date() })
+          .where(eq(standardsFiles.id, existing.id));
+      } else {
+        await deps.db.insert(standardsFiles).values({ kind: doc.kind, name: doc.name, content: parsed.data.content });
+      }
+      return { ok: true };
+    });
+  }
 
   app.post("/api/standards/skills", async (request, reply) => {
     const parsed = skillBody.safeParse(request.body);

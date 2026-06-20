@@ -4,6 +4,7 @@ import { loadConfig } from "../config";
 import type { Db } from "../db/client";
 import { githubInstallations, webhookDeliveries } from "../db/schema";
 import { getGitHubAppCredentials, saveGitHubAppCredentials } from "../github/credentials";
+import { getGates } from "../settings/settings";
 
 /**
  * GitHub App Manifest flow: the dashboard POSTs this manifest to
@@ -143,12 +144,7 @@ export async function registerSetupRoutes(app: FastifyInstance, deps: { db: Db; 
       htmlUrl: credentials?.htmlUrl ?? null,
       installUrl: credentials?.slug ? `https://github.com/apps/${credentials.slug}/installations/new` : null,
       webhookUrl: `${publicUrl}/webhooks/github`,
-      gates: {
-        triage: loadConfig().ARGUS_ENABLE_TRIAGE,
-        codex: loadConfig().ARGUS_ENABLE_CODEX,
-        llmReview: loadConfig().ARGUS_ENABLE_LLM_REVIEW,
-        gitPush: loadConfig().ARGUS_ENABLE_GIT_PUSH,
-      },
+      gates: await getGates(deps.db, loadConfig()),
       installations: installations.map((installation) => ({
         installationId: installation.installationId,
         accountLogin: installation.accountLogin,

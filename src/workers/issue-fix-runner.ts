@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client";
@@ -15,9 +15,10 @@ import {
 import { createInstallationToken } from "../github/app";
 import { createPullRequest } from "../github/pull-request";
 import { decidePublish } from "../publish/decision";
-import { reviewDiffWithLlm } from "../review/llm-review";
+import { buildCodexReviewPrompt, codexReviewOutputPath, parseCodexReview, type CodexReviewOutcome } from "../review/codex-review";
 import { parseNameStatus, runMechanicalChecks } from "../review/mechanical";
-import { createCommandExecutor } from "../sandbox/executor";
+import { buildComposePrompt, composePrOutputPath, parseComposedPr } from "../publish/compose-pr";
+import { createCommandExecutor, type CommandExecutor } from "../sandbox/executor";
 import { loadStandardsBundle, materializeStandards, renderSkillIndex } from "../standards/standards";
 import { runCommand } from "../system/command";
 import { triageIssue } from "../triage/triage";
@@ -26,6 +27,7 @@ import { compareValidation } from "../validation/compare";
 import { runValidationCommands, type ValidationRunResult } from "../validation/run-validation";
 import { argusGitIdentity, fixCommitMessage, issueBranchName, prTitle } from "./branch";
 import { JobLogger } from "./job-logger";
+import { getGates } from "../settings/settings";
 import type { WorkerJob, WorkerRunner, WorkerRunResult } from "./types";
 import { loadConfig, type AppConfig } from "../config";
 
@@ -62,6 +64,7 @@ export class IssueFixRunner implements WorkerRunner {
     workspace: string;
   }): Promise<WorkerRunResult> {
     const { job, config, loaded, policy, token, logger, workspace } = input;
+    const gates = await getGates(this.db, config);
     const repoDir = join(workspace, loaded.repository.name);
     const branch = issueBranchName(loaded.issue.number);
 
@@ -147,16 +150,17 @@ export class IssueFixRunner implements WorkerRunner {
       details: { results: validation.results },
     });
 
-    if (!config.ARGUS_ENABLE_CODEX) {
+    if (!gates.codex) {
       return {
         status: "needs_human",
-        reason: "Repository was cloned and discovered, but ARGUS_ENABLE_CODEX=false so implementation was not attempted.",
+        reason: "Repository was cloned and discovered, but the Codex gate is off so implementation was not attempted.",
       };
     }
 
     // Operator standards (dashboard-managed AGENTS.md + skills) land in the
     // workspace right before the agent runs, git-excluded so they never ship.
-    const standards = await materializeStandards(await loadStandardsBundle(this.db), repoDir);
+    const bundle = await loadStandardsBundle(this.db);
+    const standards = await materializeStandards(bundle, repoDir);
     if (standards.agentsMdWritten || standards.skillIndex.length > 0) {
       await logger.log(
         "system",
@@ -229,30 +233,37 @@ export class IssueFixRunner implements WorkerRunner {
       changedFiles: parseNameStatus(stagedNameStatus.stdout),
       maxDiffBytes: config.ARGUS_MAX_DIFF_BYTES,
     });
-    const llmReview =
-      hasDiff && mechanical.passed
-        ? await reviewDiffWithLlm({
-            issue: {
-              number: loaded.issue.number,
-              title: loaded.issue.title,
-              body: loaded.issue.body ?? "",
-            },
+    const codexReview: CodexReviewOutcome =
+      gates.llmReview && hasDiff && mechanical.passed
+        ? await this.runCodexReview({
+            executor,
+            repoDir,
+            issue: { number: loaded.issue.number, title: loaded.issue.title, body: loaded.issue.body ?? "" },
             diff: stagedDiff.stdout,
-            config,
+            reviewMd: bundle.reviewMd,
+            timeoutMs: policy.maxRuntimeMinutes * 60_000,
+            openaiApiKey: config.OPENAI_API_KEY,
+            logger,
           })
-        : { passed: false, summary: "LLM review skipped", blockers: [], degraded: false, skipped: true };
+        : {
+            passed: true,
+            summary: gates.llmReview ? "Codex review skipped" : "Codex review gate is off; mechanical checks only",
+            blockers: [],
+            degraded: false,
+            skipped: true,
+          };
 
-    const reviewPassed = hasDiff && mechanical.passed && llmReview.passed;
+    const reviewPassed = hasDiff && mechanical.passed && codexReview.passed;
     const blockers = [
       ...(hasDiff ? [] : ["No code changes were produced"]),
       ...mechanical.blockers,
-      ...llmReview.blockers,
+      ...codexReview.blockers,
     ];
     const reviewSummary = !hasDiff
       ? "Review gate blocked: no code changes were produced"
       : !mechanical.passed
         ? `Mechanical checks blocked the change: ${mechanical.blockers.join("; ")}`
-        : llmReview.summary;
+        : codexReview.summary;
     await recordReviewResult(this.db, {
       jobId: job.jobId,
       passed: reviewPassed,
@@ -265,7 +276,7 @@ export class IssueFixRunner implements WorkerRunner {
       hasDiff,
       validationVerdict: comparison.verdict,
       reviewPassed,
-      reviewDegraded: llmReview.degraded,
+      reviewDegraded: codexReview.degraded,
       discoveryConfidence: discovery.confidence,
       allowDraftPr: policy.allowDraftPr,
       publishOnLowConfidence: policy.publishOnLowConfidence,
@@ -280,10 +291,10 @@ export class IssueFixRunner implements WorkerRunner {
       return { status: "needs_human", reason: publish.reason };
     }
 
-    if (!config.ARGUS_ENABLE_GIT_PUSH) {
+    if (!gates.gitPush) {
       return {
         status: "needs_human",
-        reason: `Publish decision was ${publish.decision}, but ARGUS_ENABLE_GIT_PUSH=false so no branch or PR was pushed.`,
+        reason: `Publish decision was ${publish.decision}, but the Push gate is off so no branch or PR was pushed.`,
       };
     }
 
@@ -297,25 +308,152 @@ export class IssueFixRunner implements WorkerRunner {
       };
     }
 
+    // Publish stage: when publish.md is set, Codex authors the PR title+body to
+    // the operator's conventions; otherwise fall back to the built-in template.
+    const composed = bundle.publishMd?.trim()
+      ? await this.composePr({
+          executor,
+          repoDir,
+          issue: { number: loaded.issue.number, title: loaded.issue.title, body: loaded.issue.body ?? "" },
+          diff: stagedDiff.stdout,
+          validationSummary: comparison.summary,
+          reviewSummary,
+          publishMd: bundle.publishMd,
+          timeoutMs: policy.maxRuntimeMinutes * 60_000,
+          openaiApiKey: config.OPENAI_API_KEY,
+          logger,
+        })
+      : null;
+    if (composed) await logger.log("system", "PR text authored from publish.md");
+
     const pr = await createPullRequest({
       installationId: loaded.repository.installation.installationId,
       owner: loaded.repository.owner,
       repo: loaded.repository.name,
-      title: prTitle(loaded.issue.number, loaded.issue.title),
+      title: composed?.title ?? prTitle(loaded.issue.number, loaded.issue.title),
       head: branch,
       base: loaded.repository.defaultBranch,
-      body: buildPrBody({
-        issueNumber: loaded.issue.number,
-        validationSummary: comparison.summary,
-        reviewSummary,
-        publishReason: publish.reason,
-        triage,
-      }),
+      body:
+        composed?.body ??
+        buildPrBody({
+          issueNumber: loaded.issue.number,
+          validationSummary: comparison.summary,
+          reviewSummary,
+          publishReason: publish.reason,
+          triage,
+        }),
       draft: publish.decision === "draft_pr",
     });
     await recordPullRequest(this.db, { jobId: job.jobId, ...pr, draft: publish.decision === "draft_pr" });
 
     return { status: "completed", reason: `Opened PR ${pr.url}` };
+  }
+
+  /**
+   * Runs a Codex pass that must write a JSON file at outPath. Returns the file
+   * contents (falling back to stdout if the agent printed instead of writing),
+   * or null when the process failed. Codex never touches git/gh in these passes.
+   */
+  private async runCodexJsonPass(input: {
+    executor: CommandExecutor;
+    repoDir: string;
+    prompt: string;
+    outPath: string;
+    timeoutMs: number;
+    openaiApiKey?: string | undefined;
+    logger: JobLogger;
+    label: string;
+  }): Promise<string | null> {
+    const codex = await input.executor.run(
+      "codex",
+      ["exec", "--sandbox", "danger-full-access", "--skip-git-repo-check", input.prompt],
+      {
+        cwd: input.repoDir,
+        timeoutMs: input.timeoutMs,
+        ...(input.openaiApiKey ? { env: { OPENAI_API_KEY: input.openaiApiKey } } : {}),
+      },
+    );
+    await input.logger.logCommand(input.label, codex);
+    if (codex.exitCode !== 0) return null;
+    const file = join(input.repoDir, input.outPath);
+    const content = await readFile(file, "utf8").catch(() => null);
+    await rm(file, { force: true }).catch(() => {});
+    return content ?? codex.stdout ?? null;
+  }
+
+  private async runCodexReview(input: {
+    executor: CommandExecutor;
+    repoDir: string;
+    issue: { number: number; title: string; body: string };
+    diff: string;
+    reviewMd: string | null;
+    timeoutMs: number;
+    openaiApiKey?: string | undefined;
+    logger: JobLogger;
+  }): Promise<CodexReviewOutcome> {
+    const outPath = codexReviewOutputPath();
+    const raw = await this.runCodexJsonPass({
+      executor: input.executor,
+      repoDir: input.repoDir,
+      outPath,
+      timeoutMs: input.timeoutMs,
+      openaiApiKey: input.openaiApiKey,
+      logger: input.logger,
+      label: "codex review",
+      prompt: buildCodexReviewPrompt({
+        issueNumber: input.issue.number,
+        issueTitle: input.issue.title,
+        issueBody: input.issue.body,
+        diff: input.diff,
+        reviewMd: input.reviewMd,
+        outPath,
+      }),
+    });
+    if (raw === null) {
+      return {
+        passed: false,
+        summary: "Codex review could not run; downgrading to draft",
+        blockers: [],
+        degraded: true,
+        skipped: false,
+      };
+    }
+    return parseCodexReview(raw);
+  }
+
+  private async composePr(input: {
+    executor: CommandExecutor;
+    repoDir: string;
+    issue: { number: number; title: string; body: string };
+    diff: string;
+    validationSummary: string;
+    reviewSummary: string;
+    publishMd: string;
+    timeoutMs: number;
+    openaiApiKey?: string | undefined;
+    logger: JobLogger;
+  }): Promise<{ title: string; body: string } | null> {
+    const outPath = composePrOutputPath();
+    const raw = await this.runCodexJsonPass({
+      executor: input.executor,
+      repoDir: input.repoDir,
+      outPath,
+      timeoutMs: input.timeoutMs,
+      openaiApiKey: input.openaiApiKey,
+      logger: input.logger,
+      label: "codex compose-pr",
+      prompt: buildComposePrompt({
+        issueNumber: input.issue.number,
+        issueTitle: input.issue.title,
+        issueBody: input.issue.body,
+        diff: input.diff,
+        validationSummary: input.validationSummary,
+        reviewSummary: input.reviewSummary,
+        publishMd: input.publishMd,
+        outPath,
+      }),
+    });
+    return raw === null ? null : parseComposedPr(raw);
   }
 
   private async logValidation(logger: JobLogger, label: string, validation: ValidationRunResult): Promise<void> {

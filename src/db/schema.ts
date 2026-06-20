@@ -242,12 +242,15 @@ export const discoveryResults = pgTable("discovery_results", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const standardsKind = pgEnum("standards_kind", ["agents", "skill"]);
+// "skill" is retained for back-compat with rows created before stage docs;
+// v1 manages the three well-known singletons (agents/review/publish) instead.
+export const standardsKind = pgEnum("standards_kind", ["agents", "skill", "review", "publish"]);
 
 /**
- * Operator-authored standards (an AGENTS.md plus named skills) managed from
- * the dashboard and materialized into every fix workspace, so the agent works
- * the way the operator's team works without forking the target repos.
+ * Operator-authored standards managed from the dashboard. v1 recognizes three
+ * stage documents — AGENTS.md (fix), review.md (review), publish.md (publish) —
+ * each a singleton keyed by kind. They steer Codex at the matching pipeline
+ * stage without forking the target repos.
  */
 export const standardsFiles = pgTable(
   "standards_files",
@@ -262,6 +265,21 @@ export const standardsFiles = pgTable(
   },
   (table) => [uniqueIndex("standards_files_kind_name_idx").on(table.kind, table.name)],
 );
+
+/**
+ * Operator settings toggled live from the console (the pipeline gates), instead
+ * of redeploying with new env vars. Seeded from the env defaults on first read
+ * so existing deployments keep their exact behavior, then DB is the source of
+ * truth. Stored key/value so new toggles don't need a migration each time.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 export const triageDecision = pgEnum("triage_decision", ["attempt", "needs_more_info", "decline"]);
 
