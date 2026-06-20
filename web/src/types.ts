@@ -37,6 +37,9 @@ export type JobDetail = JobSummary & {
   reviews: Array<Record<string, unknown>>;
 };
 
+export type Gates = { triage: boolean; codex: boolean; llmReview: boolean; gitPush: boolean };
+export type GateKey = keyof Gates;
+
 export type Connection = {
   configured: boolean;
   source: string | null;
@@ -44,7 +47,7 @@ export type Connection = {
   htmlUrl: string | null;
   installUrl: string | null;
   webhookUrl: string;
-  gates: { triage: boolean; codex: boolean; llmReview: boolean; gitPush: boolean };
+  gates: Gates;
   installations: Array<{
     installationId: number;
     accountLogin: string;
@@ -71,6 +74,8 @@ export type SkillInput = {
 
 export type Standards = {
   agentsMd: string;
+  reviewMd: string;
+  publishMd: string;
   skills: Skill[];
 };
 

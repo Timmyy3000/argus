@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import type { CodexStatus, Connection } from "../types";
-import { Btn, EyeMark, Icon } from "../ui";
+import type { CodexStatus, Connection, GateKey, Gates } from "../types";
+import { Btn, EyeMark, Icon, Toggle } from "../ui";
 
-const GATE_INFO: Array<{ key: keyof Connection["gates"]; name: string; desc: string }> = [
+const GATE_INFO: Array<{ key: GateKey; name: string; desc: string }> = [
   { key: "triage", name: "Triage", desc: "Decide whether an issue has enough detail to act on (LLM; heuristic fallback when off)." },
   { key: "codex", name: "Codex", desc: "Let Codex write the fix in a sandboxed workspace." },
   { key: "llmReview", name: "Review", desc: "Run an LLM review pass over the diff (mechanical checks always run)." },
@@ -140,6 +140,47 @@ function CodexCard() {
   );
 }
 
+/** Pipeline gates as live toggles, persisted to the DB (no redeploy). */
+function GatesCard({ initial }: { initial: Gates }) {
+  const [gates, setGates] = useState<Gates>(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<GateKey | null>(null);
+
+  const toggle = async (key: GateKey) => {
+    const next = !gates[key];
+    setBusy(key);
+    setGates((g) => ({ ...g, [key]: next }));
+    try {
+      const res = await api.saveGates({ [key]: next });
+      setGates(res.gates);
+      setError(null);
+    } catch (err) {
+      setGates((g) => ({ ...g, [key]: !next }));
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head"><h3>Feature gates</h3><span className="muted" style={{ fontSize: 12 }}>Toggle live — no redeploy</span></div>
+      <div className="panel-pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+        {error && <div className="fault">gate fault — {error}</div>}
+        {GATE_INFO.map((g) => (
+          <div className="kv" key={g.key} style={{ padding: "14px 0" }}>
+            <span className="k col" style={{ alignItems: "flex-start", gap: 3 }}>
+              <span style={{ color: "var(--ink)", fontWeight: 600 }}>{g.name}</span>
+              <span className="muted" style={{ fontSize: 12 }}>{g.desc}</span>
+            </span>
+            <Toggle on={gates[g.key]} label={g.name} disabled={busy === g.key} onClick={() => void toggle(g.key)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Connections({ connection }: { connection: Connection }) {
   const repoCount = connection.installations.reduce((n, i) => n + i.repositories.length, 0);
   return (
@@ -164,22 +205,7 @@ export function Connections({ connection }: { connection: Connection }) {
 
       <CodexCard />
 
-      <div className="panel">
-        <div className="panel-head"><h3>Feature gates</h3><span className="muted" style={{ fontSize: 12 }}>Set via environment</span></div>
-        <div className="panel-pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-          {GATE_INFO.map((g) => (
-            <div className="kv" key={g.key} style={{ padding: "14px 0" }}>
-              <span className="k col" style={{ alignItems: "flex-start", gap: 3 }}>
-                <span style={{ color: "var(--ink)", fontWeight: 600 }}>{g.name}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{g.desc}</span>
-              </span>
-              <span className={"gatechip " + (connection.gates[g.key] ? "on" : "off")}>
-                {connection.gates[g.key] ? "enabled" : "disabled"}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <GatesCard initial={connection.gates} />
 
       <div className="panel">
         <div className="panel-head">

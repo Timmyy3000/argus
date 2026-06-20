@@ -1,4 +1,4 @@
-import type { CodexStatus, Connection, JobDetail, JobSummary, ManifestResponse, SkillInput, Standards } from "./types";
+import type { CodexStatus, Connection, Gates, JobDetail, JobSummary, ManifestResponse, SkillInput, Standards } from "./types";
 
 const TOKEN_KEY = "argus.dashboard.token";
 
@@ -59,10 +59,14 @@ export const api = {
   manifest: () => request<ManifestResponse>("/setup/github/manifest"),
   standards: () => request<Standards>("/api/standards"),
   saveAgentsMd: (content: string) => request<{ ok: true }>("/api/standards/agents", { method: "PUT", body: { content } }),
+  saveReviewMd: (content: string) => request<{ ok: true }>("/api/standards/review", { method: "PUT", body: { content } }),
+  savePublishMd: (content: string) => request<{ ok: true }>("/api/standards/publish", { method: "PUT", body: { content } }),
   createSkill: (skill: SkillInput) => request<{ id: string }>("/api/standards/skills", { method: "POST", body: skill }),
   updateSkill: (id: string, skill: Partial<SkillInput>) =>
     request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "PUT", body: skill }),
   deleteSkill: (id: string) => request<{ ok: true }>(`/api/standards/skills/${id}`, { method: "DELETE" }),
+  settings: () => request<{ gates: Gates }>("/api/settings"),
+  saveGates: (gates: Partial<Gates>) => request<{ gates: Gates }>("/api/settings", { method: "PUT", body: { gates } }),
   codexStatus: () => request<CodexStatus>("/api/codex/status"),
   codexConnect: () => request<CodexStatus>("/api/codex/connect", { method: "POST", body: {} }),
   codexCancel: () => request<CodexStatus>("/api/codex/cancel", { method: "POST", body: {} }),
