@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { buildAppManifest, defaultAppName } from "../src/http/setup-routes";
+import Fastify from "fastify";
+import { buildAppManifest, defaultAppName, registerSetupRoutes } from "../src/http/setup-routes";
 import { isProtectedPath } from "../src/server";
+
+async function buildSetupTestServer() {
+  const app = Fastify();
+  await registerSetupRoutes(app, { db: {} as Parameters<typeof registerSetupRoutes>[1]["db"] });
+  return app;
+}
 
 describe("buildAppManifest", () => {
   test("points webhook and redirect at the public URL", () => {
@@ -20,6 +27,35 @@ describe("buildAppManifest", () => {
       metadata: "read",
     });
     expect(manifest.default_events).toEqual(["issues"]);
+  });
+});
+
+describe("setup github manifest route", () => {
+  test("uses the personal app form by default", async () => {
+    const app = await buildSetupTestServer();
+    const response = await app.inject({ method: "GET", url: "/setup/github/manifest" });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().postUrl).toBe("https://github.com/settings/apps/new");
+  });
+
+  test("uses the organization app form when org is provided", async () => {
+    const app = await buildSetupTestServer();
+    const response = await app.inject({ method: "GET", url: "/setup/github/manifest?org=acme" });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().postUrl).toBe("https://github.com/organizations/acme/settings/apps/new");
+  });
+
+  test("rejects invalid organization logins", async () => {
+    const app = await buildSetupTestServer();
+    const response = await app.inject({ method: "GET", url: "/setup/github/manifest?org=bad%2Fowner" });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe("Invalid GitHub organization login");
   });
 });
 
