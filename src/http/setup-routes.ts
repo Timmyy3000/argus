@@ -34,6 +34,17 @@ export function defaultAppName(publicUrl: string): string {
   return `argus-${host}`.slice(0, 34).replace(/-+$/, "");
 }
 
+const githubOwnerLoginPattern = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
+
+export function buildGitHubManifestPostUrl(org?: string): string {
+  const owner = org?.trim();
+  if (!owner) return "https://github.com/settings/apps/new";
+  if (!githubOwnerLoginPattern.test(owner)) {
+    throw new Error("Invalid GitHub organization login");
+  }
+  return `https://github.com/organizations/${encodeURIComponent(owner)}/settings/apps/new`;
+}
+
 export function resolvePublicUrl(request: FastifyRequest, configured?: string | undefined): string {
   if (configured) return configured.replace(/\/$/, "");
   const proto = (request.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ?? request.protocol;
@@ -55,11 +66,17 @@ type ManifestConversion = {
 export async function registerSetupRoutes(app: FastifyInstance, deps: { db: Db; fetchImpl?: typeof fetch }) {
   const fetchImpl = deps.fetchImpl ?? fetch;
 
-  app.get("/setup/github/manifest", async (request) => {
+  app.get<{ Querystring: { org?: string } }>("/setup/github/manifest", async (request, reply) => {
     const config = loadConfig();
     const publicUrl = resolvePublicUrl(request, config.ARGUS_PUBLIC_URL);
+    let postUrl: string;
+    try {
+      postUrl = buildGitHubManifestPostUrl(request.query.org);
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
     return {
-      postUrl: "https://github.com/settings/apps/new",
+      postUrl,
       manifest: buildAppManifest(publicUrl),
       publicUrl,
     };

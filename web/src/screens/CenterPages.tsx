@@ -6,12 +6,13 @@ import { Btn, EyeMark } from "../ui";
 export function FirstRun() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [org, setOrg] = useState("");
 
   async function connect() {
     setBusy(true);
     setError(null);
     try {
-      const { postUrl, manifest } = await api.manifest();
+      const { postUrl, manifest } = await api.manifest(org.trim() || undefined);
       postManifestForm(postUrl, manifest);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -29,6 +30,17 @@ export function FirstRun() {
           <div className="cp-step"><span className="cps-n">1</span><span className="cps-t"><b>Connect GitHub</b><span className="cps-s">One click — a GitHub App manifest sets up the whole integration.</span></span></div>
           <div className="cp-step"><span className="cps-n">2</span><span className="cps-t"><b>Pick repos &amp; a trigger label</b><span className="cps-s">Choose what Argus watches and which label wakes it.</span></span></div>
           <div className="cp-step"><span className="cps-n">3</span><span className="cps-t"><b>Label an issue</b><span className="cps-s">Argus takes the watch from there.</span></span></div>
+        </div>
+        <div className="cp-owner">
+          <label className="c-label" htmlFor="github-org">GitHub organization</label>
+          <input
+            id="github-org"
+            className="c-input"
+            type="text"
+            placeholder="optional org login"
+            value={org}
+            onChange={(e) => setOrg(e.target.value)}
+          />
         </div>
         <Btn kind="primary" icon="git" onClick={() => void connect()} disabled={busy}>{busy ? "Summoning GitHub…" : "Connect GitHub"}</Btn>
         {error && <div className="fault mt16">console fault — {error}</div>}
