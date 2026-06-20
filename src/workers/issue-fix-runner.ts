@@ -24,7 +24,7 @@ import { triageIssue } from "../triage/triage";
 import type { TriageResult } from "../triage/types";
 import { compareValidation } from "../validation/compare";
 import { runValidationCommands, type ValidationRunResult } from "../validation/run-validation";
-import { issueBranchName, prTitle } from "./branch";
+import { argusGitIdentity, fixCommitMessage, issueBranchName, prTitle } from "./branch";
 import { JobLogger } from "./job-logger";
 import type { WorkerJob, WorkerRunner, WorkerRunResult } from "./types";
 import { loadConfig, type AppConfig } from "../config";
@@ -89,8 +89,8 @@ export class IssueFixRunner implements WorkerRunner {
 
     // Fresh clones have no committer identity; without one, git commit fails
     // and an empty branch gets pushed.
-    await runCommand("git", ["config", "user.name", "argus[bot]"], { cwd: repoDir, timeoutMs: 30_000 });
-    await runCommand("git", ["config", "user.email", "argus[bot]@users.noreply.github.com"], {
+    await runCommand("git", ["config", "user.name", argusGitIdentity.name], { cwd: repoDir, timeoutMs: 30_000 });
+    await runCommand("git", ["config", "user.email", argusGitIdentity.email], {
       cwd: repoDir,
       timeoutMs: 30_000,
     });
@@ -200,7 +200,7 @@ export class IssueFixRunner implements WorkerRunner {
     });
     const hasDiff = stagedDiff.stdout.trim().length > 0;
     if (hasDiff) {
-      const commit = await runCommand("git", ["commit", "-m", `Fix issue #${loaded.issue.number}`], {
+      const commit = await runCommand("git", ["commit", "-m", fixCommitMessage(loaded.issue.number)], {
         cwd: repoDir,
         timeoutMs: 60_000,
       });
